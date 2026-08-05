@@ -17,10 +17,7 @@ def home():
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
-# Storage Channel ID
 STORAGE_CHANNEL = -1004489211765
-
-# A/L EXAM DATE: 2028-08-10
 AL_EXAM_DATE = datetime(2028, 8, 10)
 
 session_str = os.environ.get("STRING_SESSION", "")
@@ -90,51 +87,54 @@ async def command_handler(event):
             AFK_REASON = ""
             await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode Turn Off විය.**")
 
-        # 1. STATUS DASHBOARD WITH A/L COUNTDOWN & TODO
+        # TREE-STYLE STATUS DASHBOARD
         if raw_text == "!status":
             tz = pytz.timezone('Asia/Colombo')
             now = datetime.now(tz).replace(tzinfo=None)
             days_left = (AL_EXAM_DATE - now).days
-            countdown_str = f"⏳ **A/L Exam Countdown (2028-08-10):** `{days_left} Days Remaining!` 🎯\n" if days_left > 0 else "🎯 **A/L Exam Period Active!**\n"
-
+            
             todo_str = ""
             if TODO_LIST:
-                todo_str = "\n📌 **DAILY STUDY TARGETS (TO-DO):**\n"
                 for idx, task in enumerate(TODO_LIST, 1):
-                    todo_str += f"  {idx}. {task}\n"
+                    prefix = "└" if idx == len(TODO_LIST) else "├"
+                    todo_str += f" {prefix} {idx}. {task}\n"
             else:
-                todo_str = "\n📌 **DAILY STUDY TARGETS:** `No active targets set`\n"
+                todo_str = " └ No active targets set\n"
 
             status_msg = (
-                "⚙️ **STUDY DASHBOARD & CONTROL PANEL**\n\n"
-                f"{countdown_str}"
-                f"• **AFK Mode:** {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
-                f"• **Working Hours (7 AM - 1 AM):** {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
-                f"• **Welcome Message:** {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
-                f"• **Custom Text Replies:** `{len(RESPONSES)}` Units\n"
-                f"• **Custom Media Replies:** `{len(MEDIA_RESPONSES)}` Units\n"
-                f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n"
+                "👋 **Hello, Student!**\n\n"
+                f"🎯 **A/L Exam Countdown (2028-08-10)**\n"
+                f" └ `{days_left} Days Remaining!`\n\n"
+                "⚙️ **System Settings**\n"
+                f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
+                f" ├ Working Hours ➔ {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
+                f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
+                f" ├ Custom Text Replies ➔ `{len(RESPONSES)}` Units\n"
+                f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)}` Units\n"
+                f" └ Blocked Users ➔ `{len(IGNORED_USERS)}` Users\n\n"
+                "📌 **Daily Study Targets**\n"
                 f"{todo_str}\n"
-                "📌 **AVAILABLE COMMANDS:**\n"
-                "• `!status` - Dashboard & Exam Countdown\n"
-                "• `!todo <target>` - Study Target එකක් එකතු කිරීමට\n"
-                "• `!done <number>` - Target එකක් Complete කිරීමට\n"
-                "• `!cleartodo` - Target ලැයිස්තුව මකා දැමීමට\n"
-                "• `!afk <hethuwa>` / `!afk off` - AFK On/Off\n"
-                "• `!hours on` / `!hours off` - Working Hours On/Off\n"
-                "• `!welcome on` / `!welcome off` - Welcome Msg On/Off\n"
-                "• `!add word=reply` - Text Auto Reply එකතු කිරීමට\n"
-                "• `!addmedia word` - Reply කර Media Auto Reply දීමට\n"
-                "• `!delmedia word` - Media Auto Reply අයින් කිරීමට\n"
-                "• `!list` / `!listmedia` - Auto Reply ලැයිස්තුව\n"
-                "• `!block` / `!unblock` - Chat එකක් Block/Unblock\n"
-                "• `!gcast <msg>` - සියල්ලන්ටම Message යැවීමට\n"
-                "• `!reset` - History & Welcomed List Clear කිරීමට"
+                "🤖 **Bot Commands** 👇\n\n"
+                " ➦ `!status` - Dashboard & Countdown\n"
+                " ➦ `!todo <target>` - Target එකක් එකතු කිරීමට\n"
+                " ➦ `!done <number>` - Target එක Complete කිරීමට\n"
+                " ➦ `!cleartodo` - Targets Clear කිරීමට\n"
+                " ➦ `!afk <reason>` / `!afk off` - AFK On/Off\n"
+                " ➦ `!hours on` / `!hours off` - Working Hours\n"
+                " ➦ `!welcome on` / `!welcome off` - Welcome Msg\n"
+                " ➦ `!add word=reply` - Auto Reply එකතු කිරීමට\n"
+                " ➦ `!addmedia word` - Media Auto Reply\n"
+                " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
+                " ➦ `!list` / `!listmedia` - Auto Replies ලැයිස්තුව\n"
+                " ➦ `!block` / `!unblock` - Block/Unblock Chat\n"
+                " ➦ `!gcast <msg>` - Message Broadcast\n"
+                " ➦ `!reset` - Clear History & Contacts\n\n"
+                "> 💡 **A/L Combined Maths Userbot System**\n"
+                "> 🚀 Status: Active & Operational"
             )
             await event.edit(status_msg)
             return
 
-        # 2. TO-DO TARGET TRACKER COMMANDS
         if raw_text.startswith("!todo "):
             task = raw_text[6:].strip()
             if task:
@@ -391,7 +391,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message(STORAGE_CHANNEL, "🚀 **Exam Countdown Updated to 2028-08-10!**")
+            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard UI Updated!**")
         except Exception:
             pass
         await client.run_until_disconnected()
