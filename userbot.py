@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import asyncio
 import threading
 from datetime import datetime
 import pytz
@@ -9,13 +10,15 @@ from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.types import UserStatusOnline
 from google import genai
+import yt_dlp
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Userbot is Live & Fully Operational!"
+    return "Userbot Utility Active!"
 
 # ---------------- CONFIGURATION ----------------
 API_ID = 35039780
@@ -23,7 +26,6 @@ API_HASH = '4ec122e3bde00836e5a02223c5a7714d'
 STORAGE_CHANNEL = -1004489211765
 AL_EXAM_DATE = datetime(2028, 8, 10)
 
-# Gemini AI Integration
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ai_client = None
 
@@ -91,369 +93,372 @@ async def save_bot_data():
             "todo_list": TODO_LIST
         }
         text_to_save = f"[USERBOT_DATA_SAVE]\n{json.dumps(data, ensure_ascii=False)}"
-        
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             await msg.delete()
-            
         await client.send_message(STORAGE_CHANNEL, text_to_save)
     except Exception as e:
         print(f"Data Save Error: {e}")
 
-# ---------------- COMMAND HANDLER (OUTGOING) ----------------
+# Helper: Check if account owner is online
+async def is_owner_online():
+    try:
+        me = await client.get_me()
+        user_full = await client(GetFullUserRequest(me.id))
+        return isinstance(user_full.users[0].status, UserStatusOnline)
+    except Exception:
+        return False
+
+# ---------------- OWNER COMMANDS (OUTGOING) ----------------
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
     try:
         raw_text = event.raw_text.strip() if event.raw_text else ""
         if not raw_text:
             return
 
-        lines = raw_text.split('\n')
-        added_count = 0
-
-        # Reset AFK if typing non-AFK commands
         if AFK_MODE and not raw_text.startswith("!afk"):
             AFK_MODE = False
             AFK_REASON = ""
-            await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode එක අයින් වුණා (Auto Off).**")
+            await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode එක Off වුණා.**")
 
-        # 1. STATUS DASHBOARD
+        # 1. STATUS / DASHBOARD
         if raw_text == "!status":
             tz = pytz.timezone('Asia/Colombo')
             now = datetime.now(tz).replace(tzinfo=None)
             days_left = (AL_EXAM_DATE - now).days
-            
+
             todo_str = ""
             if TODO_LIST:
                 for idx, task in enumerate(TODO_LIST, 1):
                     prefix = "└" if idx == len(TODO_LIST) else "├"
                     todo_str += f" {prefix} {idx}. {task}\n"
             else:
-                todo_str = " └ දැනට Targets එකතු කර නැත\n"
+                todo_str = " └ No active targets set\n"
 
             status_msg = (
-                "👋 **Userbot Dashboard Active!**\n\n"
-                f"🎯 **2028 A/L Exam Countdown**\n"
-                f" └ `{days_left} දින ඉතිරියි!`\n\n"
-                "⚙️ **System Settings Status**\n"
-                f" ├ AFK Mode ➔ {'🟢 On' if AFK_MODE else '🔴 Off'}\n"
-                f" ├ Quiet Hours ➔ {'🟢 On' if WORKING_HOURS_ONLY else '🔴 Off'} ({START_HOUR}:00 - {END_HOUR}:00)\n"
-                f" ├ Welcome Message ➔ {'🟢 On' if WELCOME_MSG_ENABLED else '🔴 Off'}\n"
-                f" ├ Gemini AI Auto-reply ➔ {'🟢 On' if AI_REPLY_ENABLED else '🔴 Off'}\n"
-                f" ├ Text Auto Replies ➔ `{len(RESPONSES)}`ක් සක්‍රීයයි\n"
-                f" ├ Media Auto Replies ➔ `{len(MEDIA_RESPONSES)}`ක් සක්‍රීයයි\n"
-                f" └ Blocked Users ➔ `{len(IGNORED_USERS)}` දෙනෙක්\n\n"
-                "📌 **Daily Study Targets (To-Do)**\n"
-                f"{todo_str}\n"
-                "🤖 **Available Commands**\n"
-                " ➦ `!status` - Control Panel\n"
-                " ➦ `!todo <target>` | `!done <number>` | `!cleartodo`\n"
-                " ➦ `!afk <reason>` | `!afk off`\n"
-                " ➦ `!hours on <start>-<end>` | `!hours off`\n"
-                " ➦ `!welcome on` | `!welcome off`\n"
-                " ➦ `!ai on` | `!ai off`\n"
-                " ➦ `!add word=reply` | `!del word` | `!list` | `!clear`\n"
-                " ➦ `!addmedia word` (reply) | `!delmedia word` | `!listmedia`\n"
-                " ➦ `!block` | `!unblock` (reply) | `!gcast <msg>`\n"
-                " ➦ `!reset` - History Clear"
+                "👋 **Hello, Student!**\n\n"
+                f"🎯 **A/L Exam Countdown (2028-08-10)**\n"
+                f" └ `{days_left} Days Remaining!`\n\n"
+                "⚙️ **System Settings**\n"
+                f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
+                f" ├ Working Hours ➔ {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
+                f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
+                f" ├ Custom Text Replies ➔ `{len(RESPONSES)} Units`\n"
+                f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)} Units`\n"
+                f" └ Blocked Users ➔ `{len(IGNORED_USERS)} Users`\n\n"
+                f"📌 **Daily Study Targets**\n{todo_str}\n"
+                "🤖 **Bot Commands** 👇\n\n"
+                " ➦ `!status` - Dashboard & Countdown\n"
+                " ➦ `!todo <target>` - Target එකක් එකතු කිරීමට\n"
+                " ➦ `!done <number>` - Target එක Complete කිරීමට\n"
+                " ➦ `!cleartodo` - Targets Clear කිරීමට\n"
+                " ➦ `!afk <reason>` / `!afk off` - AFK On/Off\n"
+                " ➦ `!hours on` / `!hours off` - Working Hours\n"
+                " ➦ `!welcome on` / `!welcome off` - Welcome Msg\n"
+                " ➦ `!add word=reply` - Auto Reply එකතු කිරීමට\n"
+                " ➦ `!addmedia word` - Media Auto Reply\n"
+                " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
+                " ➦ `!list` / `!listmedia` - Auto Replies ලැයිස්තුව\n"
+                " ➦ `!block` / `!unblock` - Block/Unblock Chat\n"
+                " ➦ `!gcast <msg>` - Message Broadcast\n"
+                " ➦ `!reset` - Clear History & Contacts\n\n"
+                "💡 **A/L Combined Maths Userbot System**\n"
+                "🚀 Status: Active & Operational"
             )
             await event.edit(status_msg)
             return
 
-        # 2. AI SWITCH
-        if raw_text.startswith("!ai "):
-            arg = raw_text[4:].strip().lower()
-            if arg == "on":
-                AI_REPLY_ENABLED = True
-                await save_bot_data()
-                await event.edit("🟢 **Gemini AI Auto-reply එක On කළා.**")
-            elif arg == "off":
-                AI_REPLY_ENABLED = False
-                await save_bot_data()
-                await event.edit("🔴 **Gemini AI Auto-reply එක Off කළා.**")
-            return
-
-        # 3. WORKING / QUIET HOURS
-        if raw_text.startswith("!hours"):
-            args = raw_text[6:].strip().split()
-            if args and args[0].lower() == "off":
-                WORKING_HOURS_ONLY = False
-                await save_bot_data()
-                await event.edit("🔴 **Quiet Hours Restriction එක Off කළා.**")
-            elif args and args[0].lower() == "on":
-                WORKING_HOURS_ONLY = True
-                if len(args) > 1 and "-" in args[1]:
-                    try:
-                        s, e = args[1].split("-")
-                        START_HOUR, END_HOUR = int(s), int(e)
-                    except Exception:
-                        pass
-                await save_bot_data()
-                await event.edit(f"🟢 **Quiet Hours Mode On කළා! ({START_HOUR}:00 සිට {END_HOUR}:00 දක්වා Auto-replies Off වේ)**")
-            return
-
-        # 4. TODO MANAGEMENT
+        # 2. TODO TARGET COMMANDS
         if raw_text.startswith("!todo "):
             task = raw_text[6:].strip()
             if task:
                 TODO_LIST.append(task)
                 await save_bot_data()
-                await event.edit(f"📚 **Target එක එකතු කළා:** `{task}`")
+                await event.edit(f"✅ **Target එකතු කළා:** `{task}`")
             return
 
         if raw_text.startswith("!done "):
             try:
-                task_num = int(raw_text[6:].strip())
-                if 1 <= task_num <= len(TODO_LIST):
-                    removed = TODO_LIST.pop(task_num - 1)
+                idx = int(raw_text[6:].strip()) - 1
+                if 0 <= idx < len(TODO_LIST):
+                    removed = TODO_LIST.pop(idx)
                     await save_bot_data()
-                    await event.edit(f"✅ **Target Completed!** ~`{removed}`~")
+                    await event.edit(f"🎉 **Target Completed:** `{removed}`")
                 else:
-                    await event.edit("❌ **වැරදි Target අංකයකි.**")
-            except ValueError:
-                await event.edit("❌ **අංකයක් ඇතුළත් කරන්න.**")
+                    await event.edit("❌ වැරදි අංකයකි.")
+            except Exception:
+                await event.edit("❌ Command එක වැරදියි. (e.g. `!done 1`)")
             return
 
         if raw_text == "!cleartodo":
             TODO_LIST.clear()
             await save_bot_data()
-            await event.edit("🗑️ **සියලුම Study Targets මකා දැමීය.**")
+            await event.edit("🧹 **සියලුම Study Targets Clear කළා!**")
             return
 
-        # 5. AFK COMMANDS
+        # 3. AFK COMMAND
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
             if arg.lower() == "off":
                 AFK_MODE = False
-                AFK_REASON = ""
-                await event.edit("🔴 **AFK Mode Off කරන ලදී.**")
+                await event.edit("🔴 **AFK Mode Off.**")
             else:
-                AFK_REASON = arg or "වැඩක ඉන්නේ. පස්සේ මැසේජ් කරන්නම්."
+                AFK_REASON = arg or "වැඩක ඉන්නේ."
                 AFK_MODE = True
-                await event.edit(f"🟢 **AFK Mode On කළා!**\nහේතුව: `{AFK_REASON}`")
+                await event.edit(f"🟢 **AFK On!** Reason: `{AFK_REASON}`")
             return
 
-        # 6. WELCOME TOGGLE
+        # 4. SYSTEM TOGGLES
+        if raw_text.startswith("!hours "):
+            val = raw_text[7:].strip().lower()
+            WORKING_HOURS_ONLY = (val == "on")
+            await save_bot_data()
+            await event.edit(f"⚙️ **Working Hours:** `{'ON' if WORKING_HOURS_ONLY else 'OFF'}`")
+            return
+
         if raw_text.startswith("!welcome "):
-            arg = raw_text[9:].strip().lower()
-            if arg == "on":
-                WELCOME_MSG_ENABLED = True
-                await save_bot_data()
-                await event.edit("🟢 **Welcome Message එක ON කළා.**")
-            elif arg == "off":
-                WELCOME_MSG_ENABLED = False
-                await save_bot_data()
-                await event.edit("🔴 **Welcome Message එක OFF කළා.**")
+            val = raw_text[9:].strip().lower()
+            WELCOME_MSG_ENABLED = (val == "on")
+            await save_bot_data()
+            await event.edit(f"⚙️ **Welcome Message:** `{'ON' if WELCOME_MSG_ENABLED else 'OFF'}`")
             return
 
-        # 7. MEDIA AUTO REPLIES
-        if raw_text.startswith("!addmedia ") and event.is_reply:
-            word = raw_text[10:].strip().lower()
-            reply_msg = await event.get_reply_message()
-            if reply_msg and word:
-                MEDIA_RESPONSES[word] = reply_msg.id
+        # 5. CUSTOM REPLIES
+        if raw_text.startswith("!add ") and "=" in raw_text:
+            parts = raw_text[5:].split("=", 1)
+            key, val = parts[0].strip().lower(), parts[1].strip()
+            RESPONSES[key] = val
+            await save_bot_data()
+            await event.edit(f"✅ Auto Reply එකතු කළා: `{key}` ➔ `{val}`")
+            return
+
+        if raw_text.startswith("!del "):
+            key = raw_text[5:].strip().lower()
+            if key in RESPONSES:
+                del RESPONSES[key]
                 await save_bot_data()
-                await event.edit(f"🖼️ **Media Reply එකතු කළා (`{word}`)!**")
+                await event.edit(f"🗑️ Auto reply අයින් කළා: `{key}`")
+            return
+
+        if raw_text == "!list":
+            if not RESPONSES:
+                await event.edit("📜 Text Auto Replies කිසිවක් නැත.")
+                return
+            msg = "📝 **Custom Text Replies:**\n\n"
+            for k, v in RESPONSES.items():
+                msg += f"• `{k}` ➔ {v}\n"
+            await event.edit(msg)
+            return
+
+        # 6. MEDIA REPLIES
+        if raw_text.startswith("!addmedia "):
+            key = raw_text[10:].strip().lower()
+            reply_msg = await event.get_reply_message()
+            if reply_msg and reply_msg.media:
+                MEDIA_RESPONSES[key] = reply_msg.id
+                await save_bot_data()
+                await event.edit(f"🖼️ Media reply එකතු කළා for: `{key}`")
+            else:
+                await event.edit("❌ Media Message එකකට Reply කර මේ Command එක දමන්න.")
             return
 
         if raw_text.startswith("!delmedia "):
-            word = raw_text[10:].strip().lower()
-            if word in MEDIA_RESPONSES:
-                del MEDIA_RESPONSES[word]
+            key = raw_text[10:].strip().lower()
+            if key in MEDIA_RESPONSES:
+                del MEDIA_RESPONSES[key]
                 await save_bot_data()
-                await event.edit(f"🗑️ Media Reply `{word}` **අයින් කළා.**")
+                await event.edit(f"🗑️ Media reply අයින් කළා: `{key}`")
             return
 
         if raw_text == "!listmedia":
             if not MEDIA_RESPONSES:
-                await event.edit("📝 **Media Auto Replies කිසිවක් නැත.**")
+                await event.edit("🖼️ Media Auto Replies කිසිවක් නැත.")
                 return
-            msg = f"🖼️ **Media Auto Replies ({len(MEDIA_RESPONSES)}):**\n\n"
-            for w in MEDIA_RESPONSES.keys():
-                msg += f"• `{w}` ➔ 🖼️ [Saved Media]\n"
+            msg = "🖼️ **Custom Media Replies:**\n\n"
+            for k in MEDIA_RESPONSES.keys():
+                msg += f"• `{k}`\n"
             await event.edit(msg)
             return
 
-        # 8. GCAST AND BLOCK
+        # 7. BLOCK & UNBLOCK
+        if raw_text in ["!block", "!unblock"]:
+            chat = await event.get_chat()
+            if event.is_private:
+                if raw_text == "!block":
+                    IGNORED_USERS.add(chat.id)
+                    await save_bot_data()
+                    await event.edit("🚫 **User Blocked.**")
+                else:
+                    IGNORED_USERS.discard(chat.id)
+                    await save_bot_data()
+                    await event.edit("✅ **User Unblocked.**")
+            return
+
+        # 8. BROADCAST (!gcast)
         if raw_text.startswith("!gcast "):
-            msg_to_send = raw_text[7:].strip()
-            await event.edit("📢 **Broadcasting Message...**")
-            dialogs = await client.get_dialogs()
-            sent_count = 0
-            for dialog in dialogs:
-                if dialog.is_user and not dialog.entity.bot and dialog.id not in IGNORED_USERS:
+            bc_msg = raw_text[7:].strip()
+            if bc_msg:
+                await event.edit("📢 **Broadcasting Message...**")
+                sent_count = 0
+                for user in list(KNOWN_CONTACTS):
                     try:
-                        await client.send_message(dialog.id, msg_to_send)
+                        await client.send_message(user, bc_msg)
                         sent_count += 1
+                        time.sleep(0.5)
                     except Exception:
                         pass
-            await event.edit(f"✅ **Broadcast අවසන්! Messages {sent_count} කට යැවීය.**")
+                await event.edit(f"✅ Broadcast Complete! Sent to `{sent_count}` users.")
             return
 
-        if (raw_text in ["!block", "!nobot"]) and event.is_reply:
-            reply_msg = await event.get_reply_message()
-            user_id = reply_msg.sender_id
-            me = await client.get_me()
-            if user_id != me.id:
-                IGNORED_USERS.add(user_id)
-                await save_bot_data()
-                await event.edit("✅ **Userව Auto-reply ලැයිස්තුවෙන් Block කළා.**")
-            return
-
-        if raw_text == "!unblock" and event.is_reply:
-            reply_msg = await event.get_reply_message()
-            user_id = reply_msg.sender_id
-            if user_id in IGNORED_USERS:
-                IGNORED_USERS.remove(user_id)
-                await save_bot_data()
-                await event.edit("✅ **User Unblocked.**")
-            return
-
-        # 9. TEXT AUTO REPLIES MANAGEMENT
-        for line in lines:
-            line = line.strip()
-            if line.startswith("!add "):
-                try:
-                    content = line[5:]
-                    if "=" in content:
-                        word, reply = content.split("=", 1)
-                        word, reply = word.strip().lower(), reply.strip()
-                        if word:
-                            RESPONSES[word] = reply
-                            added_count += 1
-                except Exception:
-                    pass
-
-        if added_count > 0:
-            await save_bot_data()
-            await event.edit(f"✅ **Auto Replies {added_count}ක් සාර්ථකව එකතු කළා!**")
-            return
-
-        if raw_text.startswith("!del "):
-            word = raw_text[5:].strip().lower()
-            RESPONSES.pop(word, None)
-            MEDIA_RESPONSES.pop(word, None)
-            await save_bot_data()
-            await event.edit(f"🗑️ `{word}` **අයින් කළා.**")
-
-        elif raw_text == "!clear":
-            RESPONSES.clear()
-            MEDIA_RESPONSES.clear()
-            await save_bot_data()
-            await event.edit("🗑️ **සියලුම Auto Replies මකා දැමීය!**")
-
-        elif raw_text == "!list":
-            msg = f"📝 **Auto Replies List ({len(RESPONSES) + len(MEDIA_RESPONSES)}):**\n\n"
-            for w, r in RESPONSES.items():
-                msg += f"• `{w}` ➔ {r}\n"
-            for w in MEDIA_RESPONSES.keys():
-                msg += f"• `{w}` ➔ 🖼️ [Media Response]\n"
-            await event.edit(msg if (RESPONSES or MEDIA_RESPONSES) else "📝 **ලැයිස්තුව හිස්ය.**")
-
-        elif raw_text == "!reset":
+        # 9. RESET HISTORY
+        if raw_text == "!reset":
             REPLIED_USERS.clear()
             KNOWN_CONTACTS.clear()
             await save_bot_data()
-            await event.edit("🔄 **Chat History Memory එක Reset කළා!**")
+            await event.edit("🧹 **History & Known Contacts Cleared!**")
+            return
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Owner Handler Error: {e}")
 
-# ---------------- INCOMING MESSAGE HANDLER ----------------
+# ---------------- PUBLIC & INCOMING HANDLER ----------------
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
-    global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, USER_LAST_MSG_TIME
+    global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, USER_LAST_MSG_TIME
     try:
         user_id = event.sender_id
         if not user_id or user_id in IGNORED_USERS:
             return
 
-        # 1. Anti-Spam Cooldown (10 seconds)
-        current_time = time.time()
-        if user_id in USER_LAST_MSG_TIME and (current_time - USER_LAST_MSG_TIME[user_id] < 10):
-            return
-        USER_LAST_MSG_TIME[user_id] = current_time
+        incoming_raw = event.raw_text.strip() if event.raw_text else ""
 
-        # 2. Quiet Hours Check
-        if WORKING_HOURS_ONLY:
-            tz = pytz.timezone('Asia/Colombo')
-            current_hour = datetime.now(tz).hour
-            if START_HOUR <= current_hour < END_HOUR:
-                return
-
-        # 3. AFK Check
-        if AFK_MODE:
-            await event.reply(f"🤖 {AFK_REASON}")
-            return
-
-        # 4. Welcome Message Check
+        # ALWAYS SEND WELCOME MESSAGE FOR NEW CONTACTS (Online/Offline)
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 full_user = await client(GetFullUserRequest(user_id))
                 user_obj = full_user.users[0]
                 if not user_obj.contact and not user_obj.bot:
-                    await event.reply("💌 Hey! Thanks for your message. I'll get back to you soon! 😊")
+                    welcome_text = (
+                        "💌 **Hey! Thanks for your message.**\n"
+                        "මම දැනට පොඩි වැඩක ඉන්නේ, ඉක්මනින්ම reply කරන්නම්! 😊\n\n"
+                        "💡 **මෙතෙක් මගෙන් ලබාගත හැකි පහසුකම්:**\n"
+                        " ➦ `!ask <ප්‍රශ්නය>` - A/L පාඩම් වල ඕනෑම ප්‍රශ්නයක් නිරාකරණය කරගන්න\n"
+                        " ➦ `!ytmp3 <Link>` - YouTube සින්දු MP3 විදිහට Download කරගන්න\n"
+                        " ➦ `!help` - සියලුම Commands බලාගන්න"
+                    )
+                    await event.reply(welcome_text)
                     KNOWN_CONTACTS.add(user_id)
                     await save_bot_data()
             except Exception as ex:
                 print(f"Welcome Fetch Error: {ex}")
 
-        incoming_raw = event.raw_text.strip().lower() if event.raw_text else ""
         if not incoming_raw:
             return
 
-        replied = False
+        # PUBLIC COMMAND 1: HELP
+        if incoming_raw.lower() in ["!help", "/help", "help"]:
+            help_text = (
+                "🤖 **Assistant Public Commands:**\n\n"
+                " ➦ `!ask <Question>` - Maths, Physics, Chem ඇතුළු ඕනෑම Study ප්‍රශ්නයක් අහන්න\n"
+                " ➦ `!ytmp3 <YouTube Link>` - Audio Download කරගන්න\n"
+                " ➦ `!exam` - A/L Exam Countdown එක බලන්න"
+            )
+            await event.reply(help_text)
+            return
 
-        # 5. Media Auto-Reply Check
-        if incoming_raw in MEDIA_RESPONSES:
-            msg_id = MEDIA_RESPONSES[incoming_raw]
-            try:
-                saved_msg = await client.get_messages(STORAGE_CHANNEL, ids=msg_id)
-                if saved_msg:
-                    await event.reply(saved_msg)
-                    replied = True
-            except Exception:
-                pass
+        # PUBLIC COMMAND 2: A/L COUNTDOWN
+        if incoming_raw.lower() == "!exam":
+            tz = pytz.timezone('Asia/Colombo')
+            now = datetime.now(tz).replace(tzinfo=None)
+            days_left = (AL_EXAM_DATE - now).days
+            await event.reply(f"🎯 **2028 A/L Exam එකට තව දින `{days_left}` ක් තියෙනවා!**\n\n_Good Luck with your Studies!_ 📚")
+            return
 
-        # 6. Custom Text Reply Check
-        if not replied:
-            words_in_msg = re.findall(r'\b\w+\b', incoming_raw)
-            for word, reply in RESPONSES.items():
-                target_word = word.strip().lower()
-                if target_word and (target_word == incoming_raw or target_word in words_in_msg):
-                    await event.reply(reply)
-                    replied = True
-                    break
-
-        # 7. Gemini AI / Default Reply
-        if not replied and user_id not in REPLIED_USERS:
-            if AI_REPLY_ENABLED and ai_client:
+        # PUBLIC COMMAND 3: GENERAL STUDY HELPER (!ask)
+        if incoming_raw.lower().startswith("!ask "):
+            query = incoming_raw[5:].strip()
+            if ai_client and query:
+                status_msg = await event.reply("🧠 **ප්‍රශ්නය විශ්ලේෂණය කරමින් පවතී...**")
                 try:
                     prompt = (
-                        f"You are a friendly personal assistant for an A/L Combined Maths student. "
-                        f"Reply briefly to this message in natural Singlish/Sinhala in 1-2 friendly sentences: '{incoming_raw}'"
+                        f"You are an expert A/L tutor (Maths, Physics, Chemistry, etc.). "
+                        f"Solve or explain this question clearly step-by-step in Sinhala/Singlish: '{query}'"
                     )
-                    
                     response = ai_client.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=prompt,
                     )
-                    
-                    if response.text:
-                        await event.reply(f"{response.text.strip()}\n\n_(🤖 Auto-Reply)_")
-                        replied = True
-                except Exception as ai_err:
-                    print(f"Gemini AI Error: {ai_err}")
+                    await status_msg.edit(f"📚 **Study Solution:**\n\n{response.text}")
+                except Exception:
+                    await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය. කරුණාකර ප්‍රශ්නය පැහැදිලිව යොමු කරන්න.")
+            return
 
-            if not replied:
-                await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨")
+        # PUBLIC COMMAND 4: YOUTUBE MP3 DOWNLOADER
+        if incoming_raw.lower().startswith("!ytmp3 "):
+            url = incoming_raw[7:].strip()
+            if "youtube.com" in url or "youtu.be" in url:
+                status_msg = await event.reply("📥 **YouTube MP3 Download වෙමින් පවතී...**")
+                try:
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': 'downloads/%(id)s.%(ext)s',
+                        'max_filesize': 50 * 1024 * 1024,
+                    }
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        filename = ydl.prepare_filename(info)
+
+                    await status_msg.edit("⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
+                    await client.send_file(event.chat_id, filename, caption=f"🎵 **{info.get('title')}**\n\nDownloaded via Assistant Bot")
+                    await status_msg.delete()
+                    if os.path.exists(filename):
+                        os.remove(filename)
+                except Exception:
+                    await status_msg.edit("❌ **Download Error:** File එක විශාල වැඩියි හෝ Link එක වැරදියි.")
+            return
+
+        # CHECK CUSTOM TEXT REPLIES
+        if incoming_raw.lower() in RESPONSES:
+            await event.reply(RESPONSES[incoming_raw.lower()])
+            return
+
+        # ANTI-SPAM LIMIT
+        current_time = time.time()
+        if user_id in USER_LAST_MSG_TIME and (current_time - USER_LAST_MSG_TIME[user_id] < 10):
+            return
+        USER_LAST_MSG_TIME[user_id] = current_time
+
+        # AFK MODE CHECK
+        if AFK_MODE:
+            await event.reply(f"🤖 **AFK Mode Active:** {AFK_REASON}")
+            return
+
+        # SMART AI AUTO-REPLY LOGIC (Skip if Owner is Online or Message is Read)
+        if user_id not in REPLIED_USERS:
+            # Wait 5 seconds to check if owner reads or replies manually
+            await asyncio.sleep(5)
             
+            # Check if event was read/seen by owner
+            chat_state = await client.get_input_entity(event.chat_id)
+            
+            # If owner is online, skip AI reply so owner can manually reply
+            if await is_owner_online():
+                return
+
+            if AI_REPLY_ENABLED and ai_client:
+                try:
+                    prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
+                    response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                    await event.reply(f"{response.text.strip()}\n\n_(🤖 Auto Reply - Type !help for commands)_")
+                except Exception:
+                    pass
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
-        print(f"Reply Error: {e}")
+        print(f"Public Handler Error: {e}")
 
-# ---------------- FLASK & CLIENT START ----------------
+# ---------------- FLASK & BOT START ----------------
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
@@ -466,10 +471,6 @@ if __name__ == "__main__":
     async def start_bot():
         await client.start()
         await load_bot_data()
-        try:
-            await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Upgraded & Connected Successfully!**")
-        except Exception:
-            pass
         await client.run_until_disconnected()
 
     client.loop.run_until_complete(start_bot())
