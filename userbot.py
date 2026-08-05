@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import time
 import threading
 from datetime import datetime
 import pytz
@@ -7,15 +9,29 @@ from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.functions.users import GetFullUserRequest
+import google.generativeai as genai
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Userbot is Live!"
+    return "Userbot is Live & Upgraded!"
 
+# Telegram API Setup
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
+
+# Gemini AI Integration (Fetch safely from Environment Variable)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+try:
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        ai_model = genai.GenerativeModel('gemini-1.5-flash')
+    else:
+        ai_model = None
+except Exception as e:
+    ai_model = None
+    print(f"AI Setup Error: {e}")
 
 STORAGE_CHANNEL = -1004489211765
 AL_EXAM_DATE = datetime(2028, 8, 10)
@@ -23,20 +39,25 @@ AL_EXAM_DATE = datetime(2028, 8, 10)
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential_updates=True)
 
+# System Variables
 RESPONSES = {}
 MEDIA_RESPONSES = {}
 IGNORED_USERS = set()
 REPLIED_USERS = set()
 KNOWN_CONTACTS = set()
 TODO_LIST = []
+USER_LAST_MSG_TIME = {}
 
 AFK_MODE = False
 AFK_REASON = ""
 WORKING_HOURS_ONLY = False
+START_HOUR = 1
+END_HOUR = 7
 WELCOME_MSG_ENABLED = True
+AI_REPLY_ENABLED = True
 
 async def load_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
     try:
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             if msg.text and "[USERBOT_DATA_SAVE]" in msg.text:
@@ -47,14 +68,17 @@ async def load_bot_data():
                 IGNORED_USERS = set(data.get("ignored", []))
                 KNOWN_CONTACTS = set(data.get("known_contacts", []))
                 WORKING_HOURS_ONLY = data.get("working_hours", False)
+                START_HOUR = data.get("start_hour", 1)
+                END_HOUR = data.get("end_hour", 7)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
+                AI_REPLY_ENABLED = data.get("ai_reply", True)
                 TODO_LIST = data.get("todo_list", [])
                 break
     except Exception as e:
         print(f"Data Load Error: {e}")
 
 async def save_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
     try:
         data = {
             "responses": RESPONSES,
@@ -62,7 +86,10 @@ async def save_bot_data():
             "ignored": list(IGNORED_USERS),
             "known_contacts": list(KNOWN_CONTACTS),
             "working_hours": WORKING_HOURS_ONLY,
+            "start_hour": START_HOUR,
+            "end_hour": END_HOUR,
             "welcome_msg": WELCOME_MSG_ENABLED,
+            "ai_reply": AI_REPLY_ENABLED,
             "todo_list": TODO_LIST
         }
         text_to_save = f"[USERBOT_DATA_SAVE]\n{json.dumps(data, ensure_ascii=False)}"
@@ -76,9 +103,12 @@ async def save_bot_data():
 
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
     try:
-        raw_text = event.raw_text.strip()
+        raw_text = event.raw_text.strip() if event.raw_text else ""
+        if not raw_text:
+            return
+
         lines = raw_text.split('\n')
         added_count = 0
 
@@ -87,7 +117,7 @@ async def command_handler(event):
             AFK_REASON = ""
             await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode Turn Off විය.**")
 
-        # TREE-STYLE STATUS DASHBOARD
+        # DASHBOARD COMMAND
         if raw_text == "!status":
             tz = pytz.timezone('Asia/Colombo')
             now = datetime.now(tz).replace(tzinfo=None)
@@ -107,34 +137,64 @@ async def command_handler(event):
                 f" └ `{days_left} Days Remaining!`\n\n"
                 "⚙️ **System Settings**\n"
                 f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
-                f" ├ Working Hours ➔ {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
+                f" ├ Working Hours ➔ {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'} ({START_HOUR}:00 - {END_HOUR}:00)\n"
                 f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
+                f" ├ Smart AI Replies ➔ {'🟢 ON' if AI_REPLY_ENABLED else '🔴 OFF'}\n"
                 f" ├ Custom Text Replies ➔ `{len(RESPONSES)}` Units\n"
                 f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)}` Units\n"
                 f" └ Blocked Users ➔ `{len(IGNORED_USERS)}` Users\n\n"
                 "📌 **Daily Study Targets**\n"
                 f"{todo_str}\n"
                 "🤖 **Bot Commands** 👇\n\n"
-                " ➦ `!status` - Dashboard & Countdown\n"
-                " ➦ `!todo <target>` - Target එකක් එකතු කිරීමට\n"
-                " ➦ `!done <number>` - Target එක Complete කිරීමට\n"
-                " ➦ `!cleartodo` - Targets Clear කිරීමට\n"
-                " ➦ `!afk <reason>` / `!afk off` - AFK On/Off\n"
-                " ➦ `!hours on` / `!hours off` - Working Hours\n"
+                " ➦ `!status` - Dashboard\n"
+                " ➦ `!todo <target>` | `!done <num>` | `!cleartodo`\n"
+                " ➦ `!afk <reason>` / `!afk off` - AFK Mode\n"
+                " ➦ `!hours on <start>-<end>` / `!hours off` - Quiet Time\n"
                 " ➦ `!welcome on` / `!welcome off` - Welcome Msg\n"
-                " ➦ `!add word=reply` - Auto Reply එකතු කිරීමට\n"
-                " ➦ `!addmedia word` - Media Auto Reply\n"
-                " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
-                " ➦ `!list` / `!listmedia` - Auto Replies ලැයිස්තුව\n"
-                " ➦ `!block` / `!unblock` - Reply කර Block/Unblock කිරීමට\n"
-                " ➦ `!gcast <msg>` - Message Broadcast\n"
-                " ➦ `!reset` - Clear History & Contacts\n\n"
+                " ➦ `!ai on` / `!ai off` - Gemini AI Auto-reply\n"
+                " ➦ `!add word=reply` | `!del word` | `!list`\n"
+                " ➦ `!addmedia word` | `!delmedia word` | `!listmedia`\n"
+                " ➦ `!block` / `!unblock` / `!blocklist`\n"
+                " ➦ `!gcast <msg>` | `!reset` - Clear History\n\n"
                 "> 🩸🖤 **Pray to the Satan...!**\n"
-                "> 🚀 Status: Active & Operational"
+                "> 🚀 Status: Upgraded & Operational"
             )
             await event.edit(status_msg)
             return
 
+        # AI CONTROL
+        if raw_text.startswith("!ai "):
+            arg = raw_text[4:].strip().lower()
+            if arg == "on":
+                AI_REPLY_ENABLED = True
+                await save_bot_data()
+                await event.edit("🟢 **Gemini AI Auto-reply ON කරන ලදී.**")
+            elif arg == "off":
+                AI_REPLY_ENABLED = False
+                await save_bot_data()
+                await event.edit("🔴 **Gemini AI Auto-reply OFF කරන ලදී.**")
+            return
+
+        # WORKING HOURS CONTROL
+        if raw_text.startswith("!hours"):
+            args = raw_text[6:].strip().split()
+            if args and args[0].lower() == "off":
+                WORKING_HOURS_ONLY = False
+                await save_bot_data()
+                await event.edit("🔴 **Working Hours Restriction Off විය.**")
+            elif args and args[0].lower() == "on":
+                WORKING_HOURS_ONLY = True
+                if len(args) > 1 and "-" in args[1]:
+                    try:
+                        s, e = args[1].split("-")
+                        START_HOUR, END_HOUR = int(s), int(e)
+                    except:
+                        pass
+                await save_bot_data()
+                await event.edit(f"🟢 **Working Hours Mode On විය! (Quiet Time: {START_HOUR}:00 - {END_HOUR}:00)**")
+            return
+
+        # TODO COMMANDS
         if raw_text.startswith("!todo "):
             task = raw_text[6:].strip()
             if task:
@@ -153,7 +213,7 @@ async def command_handler(event):
                 else:
                     await event.edit("❌ **වැරදි අංකයකි.**")
             except ValueError:
-                await event.edit("❌ **අංකයක් ඇතුළත් කරන්න. (උදා: !done 1)**")
+                await event.edit("❌ **අංකයක් ඇතුළත් කරන්න.**")
             return
 
         if raw_text == "!cleartodo":
@@ -162,37 +222,22 @@ async def command_handler(event):
             await event.edit("🗑️ **සියලුම Study Targets මකා දැමීය.**")
             return
 
+        # AFK
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
             if arg.lower() == "off":
                 AFK_MODE = False
                 AFK_REASON = ""
                 await event.edit("🔴 **AFK Mode Off කරන ලදී.**")
-            elif arg.lower() == "on":
-                AFK_MODE = True
-                if not AFK_REASON:
-                    AFK_REASON = "වැඩක ඉන්නේ."
-                await event.edit("🟢 **AFK Mode On කරන ලදී.**")
             else:
                 AFK_REASON = arg or "වැඩක ඉන්නේ."
                 AFK_MODE = True
                 await event.edit(f"🟢 **AFK Mode On විය!**\n හේතුව: `{AFK_REASON}`")
             return
 
-        if raw_text.startswith("!hours"):
-            arg = raw_text[6:].strip().lower()
-            if arg == "on":
-                WORKING_HOURS_ONLY = True
-                await save_bot_data()
-                await event.edit("🟢 **Working Hours Mode On (උදේ 7:00 - රෑ 1:00) විය.**")
-            elif arg == "off":
-                WORKING_HOURS_ONLY = False
-                await save_bot_data()
-                await event.edit("🔴 **Working Hours Mode Off විය.**")
-            return
-
-        if raw_text.startswith("!welcome"):
-            arg = raw_text[8:].strip().lower()
+        # WELCOME
+        if raw_text.startswith("!welcome "):
+            arg = raw_text[9:].strip().lower()
             if arg == "on":
                 WELCOME_MSG_ENABLED = True
                 await save_bot_data()
@@ -203,6 +248,7 @@ async def command_handler(event):
                 await event.edit("🔴 **Welcome Message OFF කරන ලදී.**")
             return
 
+        # MEDIA REPLIES
         if raw_text.startswith("!addmedia ") and event.is_reply:
             word = raw_text[10:].strip().lower()
             reply_msg = await event.get_reply_message()
@@ -218,8 +264,6 @@ async def command_handler(event):
                 del MEDIA_RESPONSES[word]
                 await save_bot_data()
                 await event.edit(f"🗑️ Media Auto-Reply `{word}` **අයින් කළා.**")
-            else:
-                await event.edit(f"❌ Media Reply `{word}` සොයාගත නොහැකි විය.")
             return
 
         if raw_text == "!listmedia":
@@ -232,6 +276,7 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
+        # GCAST & BLOCK
         if raw_text.startswith("!gcast "):
             msg_to_send = raw_text[7:].strip()
             await event.edit("📢 **Broadcasting Message...**")
@@ -254,7 +299,7 @@ async def command_handler(event):
             if user_id != me.id:
                 IGNORED_USERS.add(user_id)
                 await save_bot_data()
-                await event.edit("✅ **Auto-responses turned off for this contact.**")
+                await event.edit("✅ **User Blocked.**")
             return
 
         if raw_text == "!unblock" and event.is_reply:
@@ -263,13 +308,10 @@ async def command_handler(event):
             if user_id in IGNORED_USERS:
                 IGNORED_USERS.remove(user_id)
                 await save_bot_data()
-                await event.edit("✅ **Saved. Auto-responses re-enabled for this contact.**")
+                await event.edit("✅ **User Unblocked.**")
             return
 
-        if raw_text == "!blocklist":
-            await event.edit(f"🚫 **Block කර ඇති ගණන:** `{len(IGNORED_USERS)}`")
-            return
-
+        # MULTI ADD TEXT REPLIES
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -314,65 +356,92 @@ async def command_handler(event):
             REPLIED_USERS.clear()
             KNOWN_CONTACTS.clear()
             await save_bot_data()
-            await event.edit("🔄 **History & Welcomed Contact list Reset කළා!**")
+            await event.edit("🔄 **History Reset කළා!**")
 
     except Exception:
         pass
 
+# INCOMING MESSAGE HANDLER
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
-    global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
+    global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, USER_LAST_MSG_TIME
     try:
         user_id = event.sender_id
-        if not user_id:
+        if not user_id or user_id in IGNORED_USERS:
             return
 
-        if user_id in IGNORED_USERS:
+        # 1. Anti-Spam Cooldown
+        current_time = time.time()
+        if user_id in USER_LAST_MSG_TIME and (current_time - USER_LAST_MSG_TIME[user_id] < 10):
             return
+        USER_LAST_MSG_TIME[user_id] = current_time
 
+        # 2. Quiet Hours Check
         if WORKING_HOURS_ONLY:
             tz = pytz.timezone('Asia/Colombo')
             current_hour = datetime.now(tz).hour
-            if 1 <= current_hour < 7:
+            if START_HOUR <= current_hour < END_HOUR:
                 return
 
+        # 3. AFK Check
         if AFK_MODE:
             await event.reply(f"🤖 {AFK_REASON}")
             return
 
+        # 4. Welcome Message Check
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 full_user = await client(GetFullUserRequest(user_id))
                 user_obj = full_user.users[0]
-                
                 if not user_obj.contact and not user_obj.bot:
                     await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
                     KNOWN_CONTACTS.add(user_id)
                     await save_bot_data()
-                    return
             except Exception as ex:
                 print(f"Welcome Fetch Error: {ex}")
 
-        incoming_raw = event.raw_text.strip().lower()
+        incoming_raw = event.raw_text.strip().lower() if event.raw_text else ""
+        if not incoming_raw:
+            return
+
         replied = False
 
+        # 5. Media Auto-Reply Check
         if incoming_raw in MEDIA_RESPONSES:
             msg_id = MEDIA_RESPONSES[incoming_raw]
-            saved_msg = await client.get_messages(STORAGE_CHANNEL, ids=msg_id)
-            if saved_msg:
-                await event.reply(saved_msg)
-                replied = True
+            try:
+                saved_msg = await client.get_messages(STORAGE_CHANNEL, ids=msg_id)
+                if saved_msg:
+                    await event.reply(saved_msg)
+                    replied = True
+            except Exception:
+                pass
 
+        # 6. Custom Text Reply Check
         if not replied:
+            words_in_msg = re.findall(r'\b\w+\b', incoming_raw)
             for word, reply in RESPONSES.items():
                 target_word = word.strip().lower()
-                if target_word and (target_word == incoming_raw or target_word in incoming_raw.split()):
+                if target_word and (target_word == incoming_raw or target_word in words_in_msg):
                     await event.reply(reply)
                     replied = True
                     break
 
+        # 7. Gemini AI / Default Reply
         if not replied and user_id not in REPLIED_USERS:
-            await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨")
+            if AI_REPLY_ENABLED and ai_model:
+                try:
+                    prompt = f"You are a friendly personal assistant for an A/L Combined Maths student. Briefly answer this message in Singlish/Sinhala in 1-2 friendly sentences: '{incoming_raw}'"
+                    response = ai_model.generate_content(prompt)
+                    if response.text:
+                        await event.reply(f"{response.text.strip()}\n\n_(🤖 Auto-Reply)_")
+                        replied = True
+                except Exception as ai_err:
+                    print(f"Gemini AI Error: {ai_err}")
+
+            if not replied:
+                await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨")
+            
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
@@ -391,7 +460,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard Updated with New Branding!**")
+            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard Upgraded with AI & Anti-Spam Engine!**")
         except Exception:
             pass
         await client.run_until_disconnected()
