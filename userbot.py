@@ -6,14 +6,12 @@ from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-# 1. Render Port Binding සඳහා Flask App එක
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Userbot is Live!"
 
-# 2. Telegram Credentials
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
@@ -44,14 +42,6 @@ RESPONSES = load_data(DATA_FILE, {})
 IGNORED_USERS = set(load_data(IGNORED_FILE, []))
 REPLIED_USERS = set(load_data(REPLIED_FILE, []))
 
-def clean_text(text):
-    if not text:
-        return ""
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', '', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
     global RESPONSES, IGNORED_USERS, REPLIED_USERS
@@ -61,7 +51,7 @@ async def command_handler(event):
         added_count = 0
         added_list = []
 
-        # 1. !block හෝ !nobot (Reply එකක් ලෙස යැවිය යුතුය)
+        # 1. !block හෝ !nobot
         if (raw_text in ["!block", "!nobot"]) and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -70,7 +60,7 @@ async def command_handler(event):
             await event.edit("✅ **Saved. Auto-responses turned off for this contact.**")
             return
 
-        # 2. !unblock (Reply එකක් ලෙස)
+        # 2. !unblock
         if raw_text == "!unblock" and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -95,7 +85,7 @@ async def command_handler(event):
                     content = line[5:]
                     if "=" in content:
                         word, reply = content.split("=", 1)
-                        word = clean_text(word)
+                        word = word.strip().lower()
                         reply = reply.strip()
                         if word:
                             RESPONSES[word] = reply
@@ -114,7 +104,7 @@ async def command_handler(event):
 
         # 5. !del Command
         if raw_text.startswith("!del "):
-            word = clean_text(raw_text[5:])
+            word = raw_text[5:].strip().lower()
             if word in RESPONSES:
                 del RESPONSES[word]
                 save_data(DATA_FILE, RESPONSES)
@@ -155,23 +145,23 @@ async def reply_handler(event):
         if sender and not getattr(sender, 'bot', False):
             user_id = event.sender_id
             
-            # Block කර ඇති කෙනෙක් නම් සම්පූර්ණයෙන්ම Ignore කරයි
             if user_id in IGNORED_USERS:
                 return
 
-            incoming_raw = event.raw_text
-            cleaned_incoming = clean_text(incoming_raw)
+            incoming_raw = event.raw_text.strip().lower()
             replied = False
             
-            # 1. Custom list matching
+            # 1. Custom list matching (Simple String/Substring Check)
             for word, reply in RESPONSES.items():
-                clean_target_word = clean_text(word)
-                if clean_target_word and (clean_target_word == cleaned_incoming or clean_target_word in cleaned_incoming.split()):
+                target_word = word.strip().lower()
+                
+                # exact word match or phrase inside message
+                if target_word and (target_word == incoming_raw or target_word in incoming_raw.split()):
                     await event.reply(reply)
                     replied = True
                     break
                     
-            # 2. Default Message (එක් කෙනෙකුට 1 පාරක් පමණක් යැවීම)
+            # 2. Default Message (Custom list එකේ නැති නම් 1 පාරක් පමණක් යැවීම)
             if not replied:
                 if user_id not in REPLIED_USERS:
                     await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
