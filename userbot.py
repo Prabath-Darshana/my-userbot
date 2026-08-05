@@ -38,6 +38,9 @@ if GEMINI_API_KEY:
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), API_ID, API_HASH, sequential_updates=True)
 
+# Default AFK Message
+DEFAULT_AFK_MSG = "මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨"
+
 # System Variables
 RESPONSES = {}
 MEDIA_RESPONSES = {}
@@ -48,7 +51,7 @@ TODO_LIST = []
 USER_LAST_MSG_TIME = {}
 
 AFK_MODE = False
-AFK_REASON = ""
+AFK_REASON = DEFAULT_AFK_MSG
 WORKING_HOURS_ONLY = False
 START_HOUR = 1
 END_HOUR = 7
@@ -117,9 +120,10 @@ async def command_handler(event):
         if not raw_text:
             return
 
+        # Auto Turn-Off AFK when owner sends a message
         if AFK_MODE and not raw_text.startswith("!afk"):
             AFK_MODE = False
-            AFK_REASON = ""
+            AFK_REASON = DEFAULT_AFK_MSG
             await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode එක Off වුණා.**")
 
         # 1. STATUS / DASHBOARD
@@ -153,7 +157,7 @@ async def command_handler(event):
                 " ➦ `!todo <target>` - Target එකක් එකතු කිරීමට\n"
                 " ➦ `!done <number>` - Target එක Complete කිරීමට\n"
                 " ➦ `!cleartodo` - Targets Clear කිරීමට\n"
-                " ➦ `!afk <reason>` / `!afk off` - AFK On/Off\n"
+                " ➦ `!afk` / `!afk off` - Custom AFK Mode On/Off\n"
                 " ➦ `!hours on` / `!hours off` - Working Hours\n"
                 " ➦ `!welcome on` / `!welcome off` - Welcome Msg\n"
                 " ➦ `!add word=reply` - Auto Reply එකතු කිරීමට\n"
@@ -197,16 +201,17 @@ async def command_handler(event):
             await event.edit("🧹 **සියලුම Study Targets Clear කළා!**")
             return
 
-        # 3. AFK COMMAND
+        # 3. AFK COMMAND (Updated Logic)
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
             if arg.lower() == "off":
                 AFK_MODE = False
+                AFK_REASON = DEFAULT_AFK_MSG
                 await event.edit("🔴 **AFK Mode Off.**")
             else:
-                AFK_REASON = arg or "වැඩක ඉන්නේ."
+                AFK_REASON = arg if arg else DEFAULT_AFK_MSG
                 AFK_MODE = True
-                await event.edit(f"🟢 **AFK On!** Reason: `{AFK_REASON}`")
+                await event.edit(f"🟢 **AFK Mode On!**\n\n💬 Message:\n\"{AFK_REASON}\"")
             return
 
         # 4. SYSTEM TOGGLES
@@ -273,7 +278,7 @@ async def command_handler(event):
 
         if raw_text == "!listmedia":
             if not MEDIA_RESPONSES:
-                await event.edit("🖼️ Media Auto Replies කිසිවක් නැත.")
+                await event.edit("🖼️ Custom Media Replies කිසිවක් නැත.")
                 return
             msg = "🖼️ **Custom Media Replies:**\n\n"
             for k in MEDIA_RESPONSES.keys():
@@ -333,7 +338,7 @@ async def reply_handler(event):
 
         incoming_raw = event.raw_text.strip() if event.raw_text else ""
 
-        # ALWAYS SEND WELCOME MESSAGE FOR NEW CONTACTS (Online/Offline)
+        # ALWAYS SEND WELCOME MESSAGE FOR NEW CONTACTS
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 full_user = await client(GetFullUserRequest(user_id))
@@ -360,7 +365,7 @@ async def reply_handler(event):
         if incoming_raw.lower() in ["!help", "/help", "help"]:
             help_text = (
                 "🤖 **Assistant Public Commands:**\n\n"
-                " ➦ `!ask <Question>` - Maths, Physics, Chem ඇතුළු ඕනෑම Study ප්‍රශ්නයක් අහන්න\n"
+                " ➦ `!ask <Question>` - Study ප්‍රශ්න වලට Step-by-Step විසඳුම් ලබාගන්න\n"
                 " ➦ `!ytmp3 <YouTube Link>` - Audio Download කරගන්න\n"
                 " ➦ `!exam` - A/L Exam Countdown එක බලන්න"
             )
@@ -429,20 +434,15 @@ async def reply_handler(event):
             return
         USER_LAST_MSG_TIME[user_id] = current_time
 
-        # AFK MODE CHECK
+        # AFK MODE CHECK (Sends Custom AFK Message)
         if AFK_MODE:
-            await event.reply(f"🤖 **AFK Mode Active:** {AFK_REASON}")
+            await event.reply(AFK_REASON)
             return
 
         # SMART AI AUTO-REPLY LOGIC (Skip if Owner is Online or Message is Read)
         if user_id not in REPLIED_USERS:
-            # Wait 5 seconds to check if owner reads or replies manually
             await asyncio.sleep(5)
             
-            # Check if event was read/seen by owner
-            chat_state = await client.get_input_entity(event.chat_id)
-            
-            # If owner is online, skip AI reply so owner can manually reply
             if await is_owner_online():
                 return
 
