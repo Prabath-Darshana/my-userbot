@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 from flask import Flask
 from telethon import TelegramClient, events
@@ -21,6 +22,9 @@ client = TelegramClient(StringSession(session_str), api_id, api_hash)
 
 DATA_FILE = 'responses.json'
 
+# Default message එක යැවූ අයගේ IDs මතක තබා ගැනීමට
+replied_users = set()
+
 def load_responses():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -34,9 +38,18 @@ def save_responses(data):
 
 RESPONSES = load_responses()
 
+# Text එක සුද්ධ කර Simple කිරීමේ Function එක
+def clean_text(text):
+    text = text.lower()
+    # Punctuation / Special characters ඉවත් කිරීම
+    text = re.sub(r'[^\w\s]', '', text)
+    # අමතර Spaces ඉවත් කිරීම
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES
+    global RESPONSES, replied_users
     try:
         raw_text = event.raw_text.strip()
         lines = raw_text.split('\n')
@@ -51,12 +64,13 @@ async def command_handler(event):
                     content = line[5:]
                     if "=" in content:
                         word, reply = content.split("=", 1)
-                        word = word.strip().lower()
+                        word = clean_text(word)
                         reply = reply.strip()
                         
-                        RESPONSES[word] = reply
-                        added_list.append(f"`{word}` ➔ {reply}")
-                        added_count += 1
+                        if word:
+                            RESPONSES[word] = reply
+                            added_list.append(f"`{word}` ➔ {reply}")
+                            added_count += 1
                 except Exception:
                     pass
 
@@ -70,7 +84,7 @@ async def command_handler(event):
 
         # 2. !del Command එක
         if raw_text.startswith("!del "):
-            word = raw_text[5:].strip().lower()
+            word = clean_text(raw_text[5:])
             if word in RESPONSES:
                 del RESPONSES[word]
                 save_responses(RESPONSES)
@@ -93,29 +107,41 @@ async def command_handler(event):
             for w, r in RESPONSES.items():
                 msg += f"• `{w}` ➔ {r}\n"
             await event.edit(msg)
+
+        # 5. !reset Command එක
+        elif raw_text == "!reset":
+            replied_users.clear()
+            await event.edit("🔄 **Auto-Reply History එක Reset කළා!**")
     except Exception:
         pass
 
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
+    global replied_users
     try:
         sender = await event.get_sender()
         
-        # Bot කෙනෙක් නෙමෙයි නම් පමණක් Reply කිරීම
         if sender and not getattr(sender, 'bot', False):
-            text = event.raw_text.lower()
+            user_id = event.sender_id
+            incoming_raw = event.raw_text
+            cleaned_incoming = clean_text(incoming_raw)
             replied = False
             
-            # 1. Custom list එකේ තිබෙන වචන වලට Text reply එක යැවීම
+            # 1. Custom list එකේ තියෙන වචන එක්ක Match කිරීම
             for word, reply in RESPONSES.items():
-                if word in text:
+                clean_target_word = clean_text(word)
+                
+                # Exact Match හෝ Word in Sentence matching
+                if clean_target_word and (clean_target_word == cleaned_incoming or clean_target_word in cleaned_incoming.split()):
                     await event.reply(reply)
                     replied = True
                     break
                     
-            # 2. List එකේ නැති වෙනත් ඕනෑම මැසේජ් එකකට Default Message එක යැවීම
+            # 2. List එකේ නැති වෙනත් ඕනෑම මැසේජ් එකකට (1 පාරක් පමණක් Default Reply එක යැවීම)
             if not replied:
-                await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
+                if user_id not in replied_users:
+                    await event.reply("අඩෝ මම පොඩි වැඩක ඉන්නේ බං. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
+                    replied_users.add(user_id)
     except Exception:
         pass
 
@@ -130,7 +156,6 @@ if __name__ == "__main__":
     
     print("Userbot එක සාර්ථකව වැඩ කරමින් පවතී...")
     
-    # Crash නොවීම සඳහා Infinite Loop එකක්
     while True:
         try:
             client.start()
