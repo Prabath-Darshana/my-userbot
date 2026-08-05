@@ -396,13 +396,16 @@ async def reply_handler(event):
                         f"Solve or explain this question clearly step-by-step in Sinhala/Singlish: '{query}'"
                     )
                     response = ai_client.models.generate_content(
-                        model='gemini-2.0-flash',
+                        model='gemini-1.5-flash',
                         contents=prompt,
                     )
                     await status_msg.edit(f"📚 **Study Solution:**\n\n{response.text}")
                 except Exception as ex:
                     logger.error(f"AI Ask Error: {ex}")
-                    await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය. කරුණාකර ප්‍රශ්නය පැහැදිලිව යොමු කරන්න.")
+                    if "429" in str(ex):
+                        await status_msg.edit("⚠️ **AI Server Busy (Quota Limit):** විනාඩියකින් නැවත උත්සාහ කරන්න.")
+                    else:
+                        await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය. කරුණාකර ප්‍රශ්නය පැහැදිලිව යොමු කරන්න.")
             return
 
         # PUBLIC COMMAND 4: YOUTUBE MP3 DOWNLOADER
@@ -455,7 +458,7 @@ async def reply_handler(event):
             if AI_REPLY_ENABLED and ai_client:
                 try:
                     prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
-                    response = ai_client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+                    response = ai_client.models.generate_content(model='gemini-1.5-flash', contents=prompt)
                     await event.reply(f"{response.text.strip()}\n\n_(🤖 Auto Reply - Type !help for commands)_")
                 except Exception as ex:
                     logger.error(f"AI Reply Error: {ex}")
