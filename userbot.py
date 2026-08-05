@@ -486,6 +486,8 @@ if __name__ == "__main__":
     t.daemon = True
     t.start()
     
-    # Telegram client එක Async main loop එකෙන් run කිරීම
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    # Python 3.10+ Event Loop Issue Fix - asyncio.run() භාවිතයෙන් Telethon client එක run කිරීම
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
