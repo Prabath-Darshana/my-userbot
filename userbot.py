@@ -77,33 +77,44 @@ async def command_handler(event):
         lines = raw_text.split('\n')
         added_count = 0
 
-        # Auto Turn-Off AFK on outgoing message (If not AFK command)
+        # Auto Turn-Off AFK on outgoing message (if not !afk command)
         if AFK_MODE and not raw_text.startswith("!afk"):
             AFK_MODE = False
             AFK_REASON = ""
             await client.send_message('me', "🟢 **AFK Mode Turn Off විය (ඔබ Active විය).**")
 
-        # 1. !afk <reason>
+        # 1. AFK Commands (!afk <reason>, !afk on, !afk off)
         if raw_text.startswith("!afk"):
-            AFK_REASON = raw_text[4:].strip() or "වැඩක ඉන්නේ."
-            AFK_MODE = True
-            await event.edit(f"🔴 **AFK Mode On විය!**\n හේතුව: `{AFK_REASON}`")
+            arg = raw_text[4:].strip()
+            if arg.lower() == "off":
+                AFK_MODE = False
+                AFK_REASON = ""
+                await event.edit("🟢 **AFK Mode Off කරන ලදී.**")
+            elif arg.lower() == "on":
+                AFK_MODE = True
+                if not AFK_REASON:
+                    AFK_REASON = "වැඩක ඉන්නේ."
+                await event.edit("🔴 **AFK Mode On කරන ලදී.**")
+            else:
+                AFK_REASON = arg or "වැඩක ඉන්නේ."
+                AFK_MODE = True
+                await event.edit(f"🔴 **AFK Mode On විය!**\n හේතුව: `{AFK_REASON}`")
             return
 
-        # 2. !hours <on/off>
+        # 2. Working Hours Command
         if raw_text.startswith("!hours"):
             arg = raw_text[6:].strip().lower()
             if arg == "on":
                 WORKING_HOURS_ONLY = True
                 await save_bot_data()
-                await event.edit("⏰ **Working Hours Mode On (8 AM - 5 PM) විය.**")
+                await event.edit("⏰ **Working Hours Mode On (උදේ 7:00 - රෑ 1:00 / පැය 18) විය.**")
             elif arg == "off":
                 WORKING_HOURS_ONLY = False
                 await save_bot_data()
                 await event.edit("⏰ **Working Hours Mode Off විය (24/7 Auto Reply).**")
             return
 
-        # 3. !welcome <on/off>
+        # 3. Welcome Message Command
         if raw_text.startswith("!welcome"):
             arg = raw_text[8:].strip().lower()
             if arg == "on":
@@ -116,7 +127,37 @@ async def command_handler(event):
                 await event.edit("👋 **Welcome Message Off විය.**")
             return
 
-        # 4. !gcast <message>
+        # 4. Media Reply Control Commands (!addmedia, !delmedia, !listmedia)
+        if raw_text.startswith("!addmedia ") and event.is_reply:
+            word = raw_text[10:].strip().lower()
+            reply_msg = await event.get_reply_message()
+            if reply_msg and word:
+                MEDIA_RESPONSES[word] = reply_msg.id
+                await save_bot_data()
+                await event.edit(f"🖼️ **Media Auto-Reply එකතු කළා (`{word}`)!**")
+            return
+
+        if raw_text.startswith("!delmedia "):
+            word = raw_text[10:].strip().lower()
+            if word in MEDIA_RESPONSES:
+                del MEDIA_RESPONSES[word]
+                await save_bot_data()
+                await event.edit(f"🗑️ Media Auto-Reply `{word}` **අයින් කළා.**")
+            else:
+                await event.edit(f"❌ Media Reply `{word}` සොයාගත නොහැකි විය.")
+            return
+
+        if raw_text == "!listmedia":
+            if not MEDIA_RESPONSES:
+                await event.edit("📝 **Media Auto Replies කිසිවක් නැත.**")
+                return
+            msg = f"🖼️ **Media Auto Replies ({len(MEDIA_RESPONSES)}):**\n\n"
+            for w in MEDIA_RESPONSES.keys():
+                msg += f"• `{w}` ➔ 🖼️ [Saved Media]\n"
+            await event.edit(msg)
+            return
+
+        # 5. Broadcast Command
         if raw_text.startswith("!gcast "):
             msg_to_send = raw_text[7:].strip()
             await event.edit("📢 **Broadcasting Message...**")
@@ -132,7 +173,7 @@ async def command_handler(event):
             await event.edit(f"✅ **Broadcast Done! Messages {sent_count} කට යැවීය.**")
             return
 
-        # 5. !block / !unblock / !blocklist / !clearblock
+        # 6. Block / Unblock Commands
         if (raw_text in ["!block", "!nobot"]) and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -149,24 +190,14 @@ async def command_handler(event):
             if user_id in IGNORED_USERS:
                 IGNORED_USERS.remove(user_id)
                 await save_bot_data()
-                await event.edit("✅ **Auto-responses re-enabled for this contact.**")
+                await event.edit("✅ **Saved. Auto-responses re-enabled for this contact.**")
             return
 
         if raw_text == "!blocklist":
             await event.edit(f"🚫 **Block කර ඇති ගණන:** `{len(IGNORED_USERS)}`")
             return
 
-        # 6. !addmedia <word> (Media එකකට Reply කර)
-        if raw_text.startswith("!addmedia ") and event.is_reply:
-            word = raw_text[10:].strip().lower()
-            reply_msg = await event.get_reply_message()
-            if reply_msg and word:
-                MEDIA_RESPONSES[word] = reply_msg.id
-                await save_bot_data()
-                await event.edit(f"🖼️ **Media Auto-Reply එකතු කළා (`{word}`)!**")
-            return
-
-        # 7. Standard !add Text Commands
+        # 7. Standard Text !add Commands
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -228,19 +259,20 @@ async def reply_handler(event):
         if user_id in IGNORED_USERS:
             return
 
-        # Working hours check (Sri Lanka Time: 08:00 - 17:00)
+        # Working Hours Check: උදේ 7.00 (07:00) සිට පසුපසදා උදේ 1.00 (01:00) දක්වා (පැය 18)
         if WORKING_HOURS_ONLY:
             tz = pytz.timezone('Asia/Colombo')
             current_hour = datetime.now(tz).hour
-            if not (8 <= current_hour < 17):
+            # උදේ 1 සිට 7 දක්වා කාලය තුළ පමණක් Off වේ
+            if 1 <= current_hour < 7:
                 return
 
         incoming_raw = event.raw_text.strip().lower()
         replied = False
 
-        # 1. AFK Reply Logic
+        # 1. AFK Reply Logic (හේතුව පමණක් යැවීම)
         if AFK_MODE:
-            await event.reply(f"🤖 **මම දැනට AFK (Away):** {AFK_REASON}")
+            await event.reply(f"🤖 {AFK_REASON}")
             return
 
         # 2. Media Auto Reply Match
@@ -263,7 +295,7 @@ async def reply_handler(event):
         # 4. Default Reply & New Contact Welcome
         if not replied:
             if WELCOME_MSG_ENABLED and sender.contact is False and user_id not in KNOWN_CONTACTS:
-                await event.reply("👋 **සාදරයෙන් පිළිගනිමු!** ඔබ මගේ Contact List එකේ නැත. කෙටි මැසේජ් එකක් තබන්න.")
+                await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
                 KNOWN_CONTACTS.add(user_id)
             elif user_id not in REPLIED_USERS:
                 await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
@@ -285,7 +317,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message('me', "🚀 **Userbot Loaded with 6 Pro Features!**")
+            await client.send_message('me', "🚀 **Userbot Updated with Custom Time, Clean AFK & Media Controls!**")
         except Exception:
             pass
         await client.run_until_disconnected()
