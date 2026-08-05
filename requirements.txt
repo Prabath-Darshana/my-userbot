@@ -1,2 +1,2 @@
-telethon
-flask
+Telethon>=1.36.0
+Flask
