@@ -18,11 +18,11 @@ api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
 session_str = os.environ.get("STRING_SESSION", "")
-client = TelegramClient(StringSession(session_str), api_id, api_hash)
+
+# Telethon client එක සාදමු (sequential_updates=True මඟින් Crashes වළක්වයි)
+client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential_updates=True)
 
 DATA_FILE = 'responses.json'
-
-# Default message එක යැවූ අයගේ IDs මතක තබා ගැනීමට
 replied_users = set()
 
 def load_responses():
@@ -38,12 +38,11 @@ def save_responses(data):
 
 RESPONSES = load_responses()
 
-# Text එක සුද්ධ කර Simple කිරීමේ Function එක
 def clean_text(text):
+    if not text:
+        return ""
     text = text.lower()
-    # Punctuation / Special characters ඉවත් කිරීම
     text = re.sub(r'[^\w\s]', '', text)
-    # අමතර Spaces ඉවත් කිරීම
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
@@ -56,7 +55,6 @@ async def command_handler(event):
         added_count = 0
         added_list = []
 
-        # 1. !add Command එක (Multi-line support)
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -82,7 +80,6 @@ async def command_handler(event):
                 await event.edit(f"✅ **Auto Replies {added_count}ක් සාර්ථකව එකතු කළා!**")
             return
 
-        # 2. !del Command එක
         if raw_text.startswith("!del "):
             word = clean_text(raw_text[5:])
             if word in RESPONSES:
@@ -92,13 +89,11 @@ async def command_handler(event):
             else:
                 await event.edit(f"❌ `{word}` සොයාගත නොහැකි විය.")
 
-        # 3. !clear Command එක
         elif raw_text == "!clear":
             RESPONSES = {}
             save_responses(RESPONSES)
             await event.edit("🗑️ **ලැයිස්තුවේ තිබූ සියලුම Auto Replies මකා දමන ලදී!**")
 
-        # 4. !list Command එක
         elif raw_text == "!list":
             if not RESPONSES:
                 await event.edit("📝 **ලැයිස්තුව හිස්ය.**")
@@ -108,7 +103,6 @@ async def command_handler(event):
                 msg += f"• `{w}` ➔ {r}\n"
             await event.edit(msg)
 
-        # 5. !reset Command එක
         elif raw_text == "!reset":
             replied_users.clear()
             await event.edit("🔄 **Auto-Reply History එක Reset කළා!**")
@@ -127,17 +121,13 @@ async def reply_handler(event):
             cleaned_incoming = clean_text(incoming_raw)
             replied = False
             
-            # 1. Custom list එකේ තියෙන වචන එක්ක Match කිරීම
             for word, reply in RESPONSES.items():
                 clean_target_word = clean_text(word)
-                
-                # Exact Match හෝ Word in Sentence matching
                 if clean_target_word and (clean_target_word == cleaned_incoming or clean_target_word in cleaned_incoming.split()):
                     await event.reply(reply)
                     replied = True
                     break
                     
-            # 2. List එකේ නැති වෙනත් ඕනෑම මැසේජ් එකකට (1 පාරක් පමණක් Default Reply එක යැවීම)
             if not replied:
                 if user_id not in replied_users:
                     await event.reply("අඩෝ මම පොඩි වැඩක ඉන්නේ බං. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
@@ -161,4 +151,4 @@ if __name__ == "__main__":
             client.start()
             client.run_until_disconnected()
         except Exception as e:
-            print(f"Error එකක් ආවා, නැවත Start වේ: {e}")
+            print(f"Update Loop Warning: {e}")
