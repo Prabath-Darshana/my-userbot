@@ -16,7 +16,7 @@ api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
 # Render Environment Variable එකෙන් Session එක ගනී
-session_str = os.environ.get("STRING_SESSION", "")
+session_str = os.environ.get("STRING_SESSION", "1BVtsOJ8Bu3cBYUVe60MSz_ToaJx0fgWtHKvQVOghWEoKsQbrduiE-pmAGAQeHQHZKqdwb6i3n7F2rCaySPAome7IQaK4G95DFdZ108ffCVBJ8aej5awj1krbXB5HmvQJ5GvlUuxn566YdKwJUIo2OKmzOgEF-cGB9UBKlOMvioa-HnzSLE0P-hEF5KVXf2zW9l4JUsEGSc39wCaQGusnhD2mc1dmdJH9y9GblbESFrLFTY7RV55-NMpn26Hvf65zpFbGDz14vy4jYjP-K2DEAQL21rIuPFtSoQfWMMwCBpeHbKgbQuHMiJ5hUKtac5qpkLxW2I0v0Mhvdmq99koRh5nW-U9mDmQ=")
 
 client = TelegramClient(StringSession(session_str), api_id, api_hash)
 
