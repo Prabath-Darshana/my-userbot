@@ -9,7 +9,7 @@ from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.functions.users import GetFullUserRequest
-import google.generativeai as genai
+from google import genai
 
 app = Flask(__name__)
 
@@ -21,17 +21,15 @@ def home():
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
-# Gemini AI Integration (Fetch safely from Environment Variable)
+# Gemini AI Integration (New SDK)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-try:
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        ai_model = genai.GenerativeModel('gemini-1.5-flash')
-    else:
-        ai_model = None
-except Exception as e:
-    ai_model = None
-    print(f"AI Setup Error: {e}")
+ai_client = None
+
+if GEMINI_API_KEY:
+    try:
+        ai_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        print(f"AI Client Setup Error: {e}")
 
 STORAGE_CHANNEL = -1004489211765
 AL_EXAM_DATE = datetime(2028, 8, 10)
@@ -427,12 +425,17 @@ async def reply_handler(event):
                     replied = True
                     break
 
-        # 7. Gemini AI / Default Reply
+        # 7. Gemini AI / Default Reply (New SDK Method)
         if not replied and user_id not in REPLIED_USERS:
-            if AI_REPLY_ENABLED and ai_model:
+            if AI_REPLY_ENABLED and ai_client:
                 try:
                     prompt = f"You are a friendly personal assistant for an A/L Combined Maths student. Briefly answer this message in Singlish/Sinhala in 1-2 friendly sentences: '{incoming_raw}'"
-                    response = ai_model.generate_content(prompt)
+                    
+                    response = ai_client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt,
+                    )
+                    
                     if response.text:
                         await event.reply(f"{response.text.strip()}\n\n_(🤖 Auto-Reply)_")
                         replied = True
@@ -460,7 +463,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard Upgraded with AI & Anti-Spam Engine!**")
+            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard Upgraded with Latest Gemini SDK!**")
         except Exception:
             pass
         await client.run_until_disconnected()
