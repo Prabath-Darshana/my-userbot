@@ -20,21 +20,27 @@ client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential
 
 DATA_FILE = 'responses.json'
 IGNORED_FILE = 'ignored_users.json'
-
-replied_users = set()
+REPLIED_FILE = 'replied_users.json'
 
 def load_data(file_path, default):
     if os.path.exists(file_path):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return default
     return default
 
 def save_data(file_path, data):
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception:
+        pass
 
 RESPONSES = load_data(DATA_FILE, {})
 IGNORED_USERS = set(load_data(IGNORED_FILE, []))
+REPLIED_USERS = set(load_data(REPLIED_FILE, []))
 
 def clean_text(text):
     if not text:
@@ -46,23 +52,23 @@ def clean_text(text):
 
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, IGNORED_USERS, replied_users
+    global RESPONSES, IGNORED_USERS, REPLIED_USERS
     try:
         raw_text = event.raw_text.strip()
         lines = raw_text.split('\n')
         added_count = 0
         added_list = []
 
-        # 1. !block (මැසේජ් එකකට reply කරලා යැවිය යුතුයි)
-        if raw_text == "!block" and event.is_reply:
+        # 1. !nobot හෝ !block (Reply එකක් ලෙස යැවිය යුතුය)
+        if (raw_text in ["!block", "!nobot"]) and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
             IGNORED_USERS.add(user_id)
             save_data(IGNORED_FILE, list(IGNORED_USERS))
-            await event.edit("🚫 **මෙම කෙනාට Auto-Reply නතර කරන ලදී!**")
+            await event.edit("🚫 **මෙම කෙනාට Auto-Reply සදහටම නතර කළා!**")
             return
 
-        # 2. !unblock (මැසේජ් එකකට reply කරලා යැවිය යුතුයි)
+        # 2. !unblock (Reply එකක් ලෙස)
         if raw_text == "!unblock" and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -79,7 +85,7 @@ async def command_handler(event):
             await event.edit(f"🚫 **Auto-Reply Off කර ඇති ගණන:** `{len(IGNORED_USERS)}`")
             return
 
-        # 4. !add Command එක
+        # 4. !add Command
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -89,7 +95,6 @@ async def command_handler(event):
                         word, reply = content.split("=", 1)
                         word = clean_text(word)
                         reply = reply.strip()
-                        
                         if word:
                             RESPONSES[word] = reply
                             added_list.append(f"`{word}` ➔ {reply}")
@@ -105,7 +110,7 @@ async def command_handler(event):
                 await event.edit(f"✅ **Auto Replies {added_count}ක් එකතු කළා!**")
             return
 
-        # 5. !del Command එක
+        # 5. !del Command
         if raw_text.startswith("!del "):
             word = clean_text(raw_text[5:])
             if word in RESPONSES:
@@ -133,21 +138,22 @@ async def command_handler(event):
 
         # 8. !reset
         elif raw_text == "!reset":
-            replied_users.clear()
+            REPLIED_USERS.clear()
+            save_data(REPLIED_FILE, list(REPLIED_USERS))
             await event.edit("🔄 **Auto-Reply History එක Reset කළා!**")
     except Exception:
         pass
 
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
-    global replied_users, IGNORED_USERS
+    global REPLIED_USERS, IGNORED_USERS
     try:
         sender = await event.get_sender()
         
         if sender and not getattr(sender, 'bot', False):
             user_id = event.sender_id
             
-            # 🚫 Block කල කෙනෙක් නම් Bot කිසිවක් නොකරයි
+            # Block කර ඇති කෙනෙක් නම් සම්පූර්ණයෙන්ම Ignore කරයි
             if user_id in IGNORED_USERS:
                 return
 
@@ -163,11 +169,12 @@ async def reply_handler(event):
                     replied = True
                     break
                     
-            # 2. Default Message (Friendly text)
+            # 2. Default Message (එක් කෙනෙකුට 1 පාරක් පමණක් යැවීම)
             if not replied:
-                if user_id not in replied_users:
+                if user_id not in REPLIED_USERS:
                     await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
-                    replied_users.add(user_id)
+                    REPLIED_USERS.add(user_id)
+                    save_data(REPLIED_FILE, list(REPLIED_USERS))
     except Exception:
         pass
 
