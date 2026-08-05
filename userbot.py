@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import threading
 from flask import Flask
 from telethon import TelegramClient, events
@@ -21,6 +22,9 @@ client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential
 DATA_FILE = 'responses.json'
 IGNORED_FILE = 'ignored_users.json'
 REPLIED_FILE = 'replied_users.json'
+
+# අවසානයට ඔයා මැසේජ් එකක් යැවූ වෙලාව සටහන් කර ගැනීමට (Default: 0)
+last_active_time = 0
 
 def load_data(file_path, default):
     if os.path.exists(file_path):
@@ -44,14 +48,17 @@ REPLIED_USERS = set(load_data(REPLIED_FILE, []))
 
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, IGNORED_USERS, REPLIED_USERS
+    global RESPONSES, IGNORED_USERS, REPLIED_USERS, last_active_time
+    # ඔයා මොනවා හරි මැසේජ් එකක් යැවූ සැනින් Last Active Time එක Update වේ
+    last_active_time = time.time()
+    
     try:
         raw_text = event.raw_text.strip()
         lines = raw_text.split('\n')
         added_count = 0
         added_list = []
 
-        # 1. !block හෝ !nobot
+        # 1. !block / !nobot (Reply එකක් ලෙස)
         if (raw_text in ["!block", "!nobot"]) and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -60,7 +67,7 @@ async def command_handler(event):
             await event.edit("✅ **Saved. Auto-responses turned off for this contact.**")
             return
 
-        # 2. !unblock
+        # 2. !unblock (Reply එකක් ලෙස)
         if raw_text == "!unblock" and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -77,7 +84,7 @@ async def command_handler(event):
             await event.edit(f"🚫 **Auto-Reply Off කර ඇති ගණන:** `{len(IGNORED_USERS)}`")
             return
 
-        # 4. !add Command
+        # 4. !add Command (Multi-line support)
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -138,30 +145,34 @@ async def command_handler(event):
 
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
-    global REPLIED_USERS, IGNORED_USERS
+    global REPLIED_USERS, IGNORED_USERS, last_active_time
     try:
         sender = await event.get_sender()
         
         if sender and not getattr(sender, 'bot', False):
             user_id = event.sender_id
             
+            # Block කල කෙනෙක් නම් කිසිම දෙයක් නොකරයි
             if user_id in IGNORED_USERS:
+                return
+
+            # ඔයා මැසේජ් එකක් යවා තත්පර 60ක් (විනාඩියක්) තවම වී නැත්නම් Auto-Reply නොකරයි
+            current_time = time.time()
+            if (current_time - last_active_time) < 60:
                 return
 
             incoming_raw = event.raw_text.strip().lower()
             replied = False
             
-            # 1. Custom list matching (Simple String/Substring Check)
+            # 1. Custom list matching
             for word, reply in RESPONSES.items():
                 target_word = word.strip().lower()
-                
-                # exact word match or phrase inside message
                 if target_word and (target_word == incoming_raw or target_word in incoming_raw.split()):
                     await event.reply(reply)
                     replied = True
                     break
                     
-            # 2. Default Message (Custom list එකේ නැති නම් 1 පාරක් පමණක් යැවීම)
+            # 2. Default Message (Custom list එකේ නැති විට 1 පාරක් පමණක් යැවීම)
             if not replied:
                 if user_id not in REPLIED_USERS:
                     await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
