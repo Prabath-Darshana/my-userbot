@@ -1,25 +1,7 @@
 import json
 import os
-import threading
-from flask import Flask
 from telethon import TelegramClient, events
 
-# --- 1. Web Server (Render Free Tier එක සඳහා) ---
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Userbot is Running Alive 24/7!"
-
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# Web Server එක වෙනම Background Thread එකක Run කරමු
-threading.Thread(target=run_web_server, daemon=True).start()
-
-
-# --- 2. Telegram Userbot Code ---
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
