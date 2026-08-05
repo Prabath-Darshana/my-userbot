@@ -1,7 +1,5 @@
 import json
 import os
-import re
-import time
 import threading
 from flask import Flask
 from telethon import TelegramClient, events
@@ -23,9 +21,6 @@ DATA_FILE = 'responses.json'
 IGNORED_FILE = 'ignored_users.json'
 REPLIED_FILE = 'replied_users.json'
 
-# අවසානයට ඔයා මැසේජ් එකක් යැවූ වෙලාව සටහන් කර ගැනීමට (Default: 0)
-last_active_time = 0
-
 def load_data(file_path, default):
     if os.path.exists(file_path):
         try:
@@ -46,19 +41,17 @@ RESPONSES = load_data(DATA_FILE, {})
 IGNORED_USERS = set(load_data(IGNORED_FILE, []))
 REPLIED_USERS = set(load_data(REPLIED_FILE, []))
 
+# 1. Commands - ඔයා යවන මැසේජ් (outgoing) විතරක් Processing කරයි
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, IGNORED_USERS, REPLIED_USERS, last_active_time
-    # ඔයා මොනවා හරි මැසේජ් එකක් යැවූ සැනින් Last Active Time එක Update වේ
-    last_active_time = time.time()
-    
+    global RESPONSES, IGNORED_USERS, REPLIED_USERS
     try:
         raw_text = event.raw_text.strip()
         lines = raw_text.split('\n')
         added_count = 0
         added_list = []
 
-        # 1. !block / !nobot (Reply එකක් ලෙස)
+        # !block / !nobot
         if (raw_text in ["!block", "!nobot"]) and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -67,7 +60,7 @@ async def command_handler(event):
             await event.edit("✅ **Saved. Auto-responses turned off for this contact.**")
             return
 
-        # 2. !unblock (Reply එකක් ලෙස)
+        # !unblock
         if raw_text == "!unblock" and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
@@ -79,12 +72,12 @@ async def command_handler(event):
                 await event.edit("❌ **මෙම කෙනා Block ලැයිස්තුවේ නැත.**")
             return
 
-        # 3. !blocklist
+        # !blocklist
         if raw_text == "!blocklist":
             await event.edit(f"🚫 **Auto-Reply Off කර ඇති ගණන:** `{len(IGNORED_USERS)}`")
             return
 
-        # 4. !add Command (Multi-line support)
+        # !add Command
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -109,7 +102,7 @@ async def command_handler(event):
                 await event.edit(f"✅ **Auto Replies {added_count}ක් එකතු කළා!**")
             return
 
-        # 5. !del Command
+        # !del
         if raw_text.startswith("!del "):
             word = raw_text[5:].strip().lower()
             if word in RESPONSES:
@@ -119,13 +112,13 @@ async def command_handler(event):
             else:
                 await event.edit(f"❌ `{word}` සොයාගත නොහැකි විය.")
 
-        # 6. !clear
+        # !clear
         elif raw_text == "!clear":
             RESPONSES = {}
             save_data(DATA_FILE, RESPONSES)
             await event.edit("🗑️ **සියලුම Auto Replies මකා දමන ලදී!**")
 
-        # 7. !list
+        # !list
         elif raw_text == "!list":
             if not RESPONSES:
                 await event.edit("📝 **ලැයිස්තුව හිස්ය.**")
@@ -135,7 +128,7 @@ async def command_handler(event):
                 msg += f"• `{w}` ➔ {r}\n"
             await event.edit(msg)
 
-        # 8. !reset
+        # !reset
         elif raw_text == "!reset":
             REPLIED_USERS.clear()
             save_data(REPLIED_FILE, list(REPLIED_USERS))
@@ -143,28 +136,24 @@ async def command_handler(event):
     except Exception:
         pass
 
+# 2. Auto Reply Handler - අනිත් අයගෙන් එන මැසේජ් සඳහා (Incoming Private)
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
-    global REPLIED_USERS, IGNORED_USERS, last_active_time
+    global REPLIED_USERS, IGNORED_USERS
     try:
         sender = await event.get_sender()
         
+        # Bot කෙනෙක් නොවන සාමාන්‍ය User කෙනෙක් නම් පමණයි
         if sender and not getattr(sender, 'bot', False):
             user_id = event.sender_id
             
-            # Block කල කෙනෙක් නම් කිසිම දෙයක් නොකරයි
             if user_id in IGNORED_USERS:
-                return
-
-            # ඔයා මැසේජ් එකක් යවා තත්පර 60ක් (විනාඩියක්) තවම වී නැත්නම් Auto-Reply නොකරයි
-            current_time = time.time()
-            if (current_time - last_active_time) < 60:
                 return
 
             incoming_raw = event.raw_text.strip().lower()
             replied = False
             
-            # 1. Custom list matching
+            # Custom responses match කිරීම
             for word, reply in RESPONSES.items():
                 target_word = word.strip().lower()
                 if target_word and (target_word == incoming_raw or target_word in incoming_raw.split()):
@@ -172,7 +161,7 @@ async def reply_handler(event):
                     replied = True
                     break
                     
-            # 2. Default Message (Custom list එකේ නැති විට 1 පාරක් පමණක් යැවීම)
+            # Custom list එකේ නැත්නම් Default Reply එක යැවීම
             if not replied:
                 if user_id not in REPLIED_USERS:
                     await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
@@ -192,9 +181,13 @@ if __name__ == "__main__":
     
     print("Userbot එක සාර්ථකව වැඩ කරමින් පවතී...")
     
-    while True:
+    async def start_bot():
+        await client.start()
+        # Render එකේ Deploy වෙලා Bot වැඩ පටන් ගත් සැනින් Saved Messages එකට Message එකක් යැවීම
         try:
-            client.start()
-            client.run_until_disconnected()
-        except Exception as e:
-            print(f"Update Loop Warning: {e}")
+            await client.send_message('me', "🚀 **Userbot Started Successfully on Render!**")
+        except Exception:
+            pass
+        await client.run_until_disconnected()
+
+    client.loop.run_until_complete(start_bot())
