@@ -4,6 +4,7 @@ import asyncio
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from telethon.tl.types import UserStatusOnline
 
 # 1. Render Port Binding සඳහා Flask App එක
 app = Flask(__name__)
@@ -16,8 +17,7 @@ def home():
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
-# Render Environment Variable එකෙන් Session එක ගනී, නැතහොත් "" ඇතුළට Paste කරන්න
-session_str = os.environ.get("STRING_SESSION", "1BVtsOJ8Bu3cBYUVe60MSz_ToaJx0fgWtHKvQVOghWEoKsQbrduiE-pmAGAQeHQHZKqdwb6i3n7F2rCaySPAome7IQaK4G95DFdZ108ffCVBJ8aej5awj1krbXB5HmvQJ5GvlUuxn566YdKwJUIo2OKmzOgEF-cGB9UBKlOMvioa-HnzSLE0P-hEF5KVXf2zW9l4JUsEGSc39wCaQGusnhD2mc1dmdJH9y9GblbESFrLFTY7RV55-NMpn26Hvf65zpFbGDz14vy4jYjP-K2DEAQL21rIuPFtSoQfWMMwCBpeHbKgbQuHMiJ5hUKtac5qpkLxW2I0v0Mhvdmq99koRh5nW-U9mDmQ=")
+session_str = os.environ.get("STRING_SESSION", "")
 
 client = TelegramClient(StringSession(session_str), api_id, api_hash)
 
@@ -90,21 +90,27 @@ async def reply_handler(event):
         text = event.raw_text.lower()
         replied = False
         
+        # 1. List එකේ තියෙන වචනයක්දැයි පරීක්ෂා කිරීම (Online/Offline ඕනෑම වෙලාවක යයි)
         for word, reply in RESPONSES.items():
             if word in text:
                 await event.reply(reply)
                 replied = True
                 break
                 
+        # 2. List එකේ නැතිනම්, Offline සිටිනවාදැයි පරීක්ෂා කිරීම
         if not replied:
-            await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
+            me = await client.get_me()
+            # ඔබගේ Online Status එක පරීක්ෂා කිරීම
+            is_online = isinstance(me.status, UserStatusOnline)
+            
+            # Offline නම් පමණක් Default reply එක යවයි
+            if not is_online:
+                await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
 
-# Telegram Bot එක Background එකේ start කිරීම සඳහා Async Function එකක්
 async def start_bot():
     await client.start()
     print("Userbot එක සාර්ථකව වැඩ කරමින් පවතී...")
 
-# asyncio හරහා bot එක start කරමු
 client.loop.create_task(start_bot())
 
 if __name__ == "__main__":
