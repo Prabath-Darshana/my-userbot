@@ -1,11 +1,16 @@
 import json
 import os
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
-client = TelegramClient('my_userbot_session', api_id, api_hash)
+# Render environment variables වලින් string session එක ගනී, 
+# නැතහොත් StringSession(...) ඇතුළට කෙලින්ම String එක දාන්න.
+string_session = os.environ.get("STRING_SESSION", "")
+
+client = TelegramClient(StringSession(string_session), api_id, api_hash)
 
 DATA_FILE = 'responses.json'
 
