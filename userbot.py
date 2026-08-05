@@ -65,10 +65,12 @@ AI_REPLY_ENABLED = True
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
+    """ Fixed model names & handled quota errors """
     if not ai_client:
         return None
     
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
+    # Official supported models
+    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         try:
@@ -82,7 +84,7 @@ async def generate_ai_response(prompt_text):
             err_str = str(e)
             logger.warning(f"Failed with {model_name}: {err_str}")
             if "429" in err_str:
-                return "QUOTA_EXCEEDED"
+                continue
             continue
             
     return None
@@ -233,7 +235,7 @@ async def command_handler(event):
             await event.edit(status_msg)
             return
 
-        # 2. CHECK IGNORED / DISABLED USERS (ඔයා Bot ව Disable/Block කරපු අයගේ List එක)
+        # 2. CHECK IGNORED USERS (ඔයා !block දාලා Bot ව Disable කළ අයගේ List එක)
         if raw_text in ["!ignored", "!blocklist"]:
             if not IGNORED_USERS:
                 await event.edit("🟢 **ඔබ විසින් Bot ව වැඩ නොකරන ලෙස Block/Disable කළ අය කිසිවෙක් නැත.**")
@@ -492,12 +494,10 @@ async def reply_handler(event):
                 ai_text = await generate_ai_response(prompt)
                 
                 if status_msg:
-                    if ai_text == "QUOTA_EXCEEDED":
-                        await status_msg.edit("⚠️ **AI Server Busy (Quota Limit):** විනාඩියකින් නැවත උත්සාහ කරන්න.")
-                    elif ai_text:
+                    if ai_text:
                         await status_msg.edit(f"📚 **Study Solution:**\n\n{ai_text}")
                     else:
-                        await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය. කරුණාකර ප්‍රශ්නය පැහැදිලිව යොමු කරන්න.")
+                        await status_msg.edit("⚠️ **AI Busy / Limits Reached:** කරුණාකර මොහොතකින් නැවත උත්සාහ කරන්න.")
             return
 
         # PUBLIC COMMAND 4: YOUTUBE MP3 DOWNLOADER
@@ -553,7 +553,7 @@ async def reply_handler(event):
             if AI_REPLY_ENABLED and ai_client:
                 prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
                 ai_text = await generate_ai_response(prompt)
-                if ai_text and ai_text != "QUOTA_EXCEEDED":
+                if ai_text:
                     await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto Reply - Type !help for commands)_", reply_to=event)
             REPLIED_USERS.add(user_id)
 
