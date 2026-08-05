@@ -90,22 +90,23 @@ async def reply_handler(event):
         text = event.raw_text.lower()
         replied = False
         
-        # 1. List එකේ තියෙන වචනයක්දැයි පරීක්ෂා කිරීම (Online/Offline ඕනෑම වෙලාවක යයි)
+        # 1. List එකේ ඇති වචනයක්දැයි පරීක්ෂා කිරීම (තැන කොතැන වුවත් සාර්ථකව යයි)
         for word, reply in RESPONSES.items():
             if word in text:
                 await event.reply(reply)
                 replied = True
                 break
                 
-        # 2. List එකේ නැතිනම්, Offline සිටිනවාදැයි පරීක්ෂා කිරීම
+        # 2. List එකේ නැත්නම් සහ ඔබ Offline සිටී නම් පමණක් default reply එක යැවීම
         if not replied:
-            me = await client.get_me()
-            # ඔබගේ Online Status එක පරීක්ෂා කිරීම
-            is_online = isinstance(me.status, UserStatusOnline)
-            
-            # Offline නම් පමණක් Default reply එක යවයි
-            if not is_online:
-                await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
+            try:
+                me = await client.get_me()
+                is_online = isinstance(getattr(me, 'status', None), UserStatusOnline)
+                
+                if not is_online:
+                    await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
+            except Exception:
+                pass
 
 async def start_bot():
     await client.start()
