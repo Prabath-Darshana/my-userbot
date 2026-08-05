@@ -28,17 +28,7 @@ def load_responses():
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     else:
-        default_data = {
-            "hi": "හලෝ මචං! කොහොමද ඉතින්?",
-            "hello": "හලෝ මචං! කොහොමද ඉතින්?",
-            "මචං": "කියපන් මචෝ, මොකද වෙන්නේ?",
-            "moko": "ලැප් එකේ වැඩක් බං. කියපන්?",
-            "ela": "එලම කිරි මචං! 👍",
-            "thanks": "Welcome මචං! 🤜🤛",
-            "bye": "එල බං, Bye! පරිස්සමෙන්."
-        }
-        save_responses(default_data)
-        return default_data
+        return {}
 
 def save_responses(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -72,6 +62,11 @@ async def command_handler(event):
             await event.edit(f"🗑️ `{word}` **අයින් කළා.**")
         else:
             await event.edit(f"❌ `{word}` සොයාගත නොහැකි විය.")
+
+    elif text == "!clear":
+        RESPONSES = {}
+        save_responses(RESPONSES)
+        await event.edit("🗑️ **ලැයිස්තුවේ තිබූ සියලුම Auto Replies මකා දමන ලදී!**")
 
     elif text == "!list":
         if not RESPONSES:
@@ -113,7 +108,6 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    # Flask එක වෙනම Thread එකක background එකෙන් start කරයි
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
