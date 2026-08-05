@@ -17,8 +17,11 @@ def home():
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
-# ඔයාගේ Storage Channel ID එක
+# Storage Channel ID
 STORAGE_CHANNEL = -1004489211765
+
+# A/L EXAM DATE: 2028-08-10
+AL_EXAM_DATE = datetime(2028, 8, 10)
 
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential_updates=True)
@@ -28,6 +31,7 @@ MEDIA_RESPONSES = {}
 IGNORED_USERS = set()
 REPLIED_USERS = set()
 KNOWN_CONTACTS = set()
+TODO_LIST = []
 
 AFK_MODE = False
 AFK_REASON = ""
@@ -35,7 +39,7 @@ WORKING_HOURS_ONLY = False
 WELCOME_MSG_ENABLED = True
 
 async def load_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST
     try:
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             if msg.text and "[USERBOT_DATA_SAVE]" in msg.text:
@@ -47,12 +51,13 @@ async def load_bot_data():
                 KNOWN_CONTACTS = set(data.get("known_contacts", []))
                 WORKING_HOURS_ONLY = data.get("working_hours", False)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
+                TODO_LIST = data.get("todo_list", [])
                 break
     except Exception as e:
         print(f"Data Load Error: {e}")
 
 async def save_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST
     try:
         data = {
             "responses": RESPONSES,
@@ -60,7 +65,8 @@ async def save_bot_data():
             "ignored": list(IGNORED_USERS),
             "known_contacts": list(KNOWN_CONTACTS),
             "working_hours": WORKING_HOURS_ONLY,
-            "welcome_msg": WELCOME_MSG_ENABLED
+            "welcome_msg": WELCOME_MSG_ENABLED,
+            "todo_list": TODO_LIST
         }
         text_to_save = f"[USERBOT_DATA_SAVE]\n{json.dumps(data, ensure_ascii=False)}"
         
@@ -73,7 +79,7 @@ async def save_bot_data():
 
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST
     try:
         raw_text = event.raw_text.strip()
         lines = raw_text.split('\n')
@@ -84,18 +90,36 @@ async def command_handler(event):
             AFK_REASON = ""
             await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode Turn Off විය.**")
 
+        # 1. STATUS DASHBOARD WITH A/L COUNTDOWN & TODO
         if raw_text == "!status":
+            tz = pytz.timezone('Asia/Colombo')
+            now = datetime.now(tz).replace(tzinfo=None)
+            days_left = (AL_EXAM_DATE - now).days
+            countdown_str = f"⏳ **A/L Exam Countdown (2028-08-10):** `{days_left} Days Remaining!` 🎯\n" if days_left > 0 else "🎯 **A/L Exam Period Active!**\n"
+
+            todo_str = ""
+            if TODO_LIST:
+                todo_str = "\n📌 **DAILY STUDY TARGETS (TO-DO):**\n"
+                for idx, task in enumerate(TODO_LIST, 1):
+                    todo_str += f"  {idx}. {task}\n"
+            else:
+                todo_str = "\n📌 **DAILY STUDY TARGETS:** `No active targets set`\n"
+
             status_msg = (
-                "⚙️ **SYSTEM DASHBOARD & CONTROL PANEL**\n\n"
+                "⚙️ **STUDY DASHBOARD & CONTROL PANEL**\n\n"
+                f"{countdown_str}"
                 f"• **AFK Mode:** {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
                 f"• **Working Hours (7 AM - 1 AM):** {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
                 f"• **Welcome Message:** {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
                 f"• **Custom Text Replies:** `{len(RESPONSES)}` Units\n"
                 f"• **Custom Media Replies:** `{len(MEDIA_RESPONSES)}` Units\n"
                 f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n"
-                f"• **Welcomed Contacts Count:** `{len(KNOWN_CONTACTS)}` Users\n\n"
+                f"{todo_str}\n"
                 "📌 **AVAILABLE COMMANDS:**\n"
-                "• `!status` - Dashboard එක බලාගැනීමට\n"
+                "• `!status` - Dashboard & Exam Countdown\n"
+                "• `!todo <target>` - Study Target එකක් එකතු කිරීමට\n"
+                "• `!done <number>` - Target එකක් Complete කිරීමට\n"
+                "• `!cleartodo` - Target ලැයිස්තුව මකා දැමීමට\n"
                 "• `!afk <hethuwa>` / `!afk off` - AFK On/Off\n"
                 "• `!hours on` / `!hours off` - Working Hours On/Off\n"
                 "• `!welcome on` / `!welcome off` - Welcome Msg On/Off\n"
@@ -108,6 +132,34 @@ async def command_handler(event):
                 "• `!reset` - History & Welcomed List Clear කිරීමට"
             )
             await event.edit(status_msg)
+            return
+
+        # 2. TO-DO TARGET TRACKER COMMANDS
+        if raw_text.startswith("!todo "):
+            task = raw_text[6:].strip()
+            if task:
+                TODO_LIST.append(task)
+                await save_bot_data()
+                await event.edit(f"📚 **Study Target එකතු කළා:** `{task}`")
+            return
+
+        if raw_text.startswith("!done "):
+            try:
+                task_num = int(raw_text[6:].strip())
+                if 1 <= task_num <= len(TODO_LIST):
+                    removed = TODO_LIST.pop(task_num - 1)
+                    await save_bot_data()
+                    await event.edit(f"✅ **Target Completed!** ~`{removed}`~")
+                else:
+                    await event.edit("❌ **වැරදි අංකයකි.**")
+            except ValueError:
+                await event.edit("❌ **අංකයක් ඇතුළත් කරන්න. (උදා: !done 1)**")
+            return
+
+        if raw_text == "!cleartodo":
+            TODO_LIST.clear()
+            await save_bot_data()
+            await event.edit("🗑️ **සියලුම Study Targets මකා දැමීය.**")
             return
 
         if raw_text.startswith("!afk"):
@@ -339,7 +391,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Storage System Connected to Private Channel!**")
+            await client.send_message(STORAGE_CHANNEL, "🚀 **Exam Countdown Updated to 2028-08-10!**")
         except Exception:
             pass
         await client.run_until_disconnected()
