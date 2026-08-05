@@ -80,17 +80,28 @@ async def command_handler(event):
             AFK_REASON = ""
             await client.send_message('me', "🟢 **AFK Mode Turn Off විය.**")
 
-        # 1. !status Command (සියලුම Dashboard Status බලාගැනීම)
+        # 1. !status Command (Dashboard)
         if raw_text == "!status":
             status_msg = (
-                "⚙️ **Userbot System Status**\n\n"
-                f"• **AFK Mode:** {'🔴 ON' if AFK_MODE else '🟢 OFF'}\n"
-                f"• **Working Hours (7 AM - 1 AM):** {'🔴 ON' if WORKING_HOURS_ONLY else '🟢 OFF'}\n"
+                "⚙️ **SYSTEM DASHBOARD & CONTROL PANEL**\n\n"
+                f"• **AFK Mode:** {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
+                f"• **Working Hours (7 AM - 1 AM):** {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
                 f"• **Welcome Message:** {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
                 f"• **Custom Text Replies:** `{len(RESPONSES)}` Units\n"
                 f"• **Custom Media Replies:** `{len(MEDIA_RESPONSES)}` Units\n"
-                f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n"
-                f"• **Welcomed Users History:** `{len(KNOWN_CONTACTS)}` Contacts"
+                f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n\n"
+                "📌 **AVAILABLE COMMANDS:**\n"
+                "• `!status` - Dashboard එක බලාගැනීමට\n"
+                "• `!afk <hethuwa>` / `!afk off` - AFK On/Off\n"
+                "• `!hours on` / `!hours off` - Working Hours On/Off\n"
+                "• `!welcome on` / `!welcome off` - Welcome Msg On/Off\n"
+                "• `!add word=reply` - Text Auto Reply එකතු කිරීමට\n"
+                "• `!addmedia word` - Reply කර Media Auto Reply දීමට\n"
+                "• `!delmedia word` - Media Auto Reply අයින් කිරීමට\n"
+                "• `!list` / `!listmedia` - Auto Reply ලැයිස්තුව\n"
+                "• `!block` / `!unblock` - Chat එකක් Block/Unblock\n"
+                "• `!gcast <msg>` - සියල්ලන්ටම Message යැවීමට\n"
+                "• `!reset` - Reply History Clear කිරීමට"
             )
             await event.edit(status_msg)
             return
@@ -100,16 +111,16 @@ async def command_handler(event):
             if arg.lower() == "off":
                 AFK_MODE = False
                 AFK_REASON = ""
-                await event.edit("🟢 **AFK Mode Off කරන ලදී.**")
+                await event.edit("🔴 **AFK Mode Off කරන ලදී.**")
             elif arg.lower() == "on":
                 AFK_MODE = True
                 if not AFK_REASON:
                     AFK_REASON = "වැඩක ඉන්නේ."
-                await event.edit("🔴 **AFK Mode On කරන ලදී.**")
+                await event.edit("🟢 **AFK Mode On කරන ලදී.**")
             else:
                 AFK_REASON = arg or "වැඩක ඉන්නේ."
                 AFK_MODE = True
-                await event.edit(f"🔴 **AFK Mode On විය!**\n හේතුව: `{AFK_REASON}`")
+                await event.edit(f"🟢 **AFK Mode On විය!**\n හේතුව: `{AFK_REASON}`")
             return
 
         if raw_text.startswith("!hours"):
@@ -117,11 +128,11 @@ async def command_handler(event):
             if arg == "on":
                 WORKING_HOURS_ONLY = True
                 await save_bot_data()
-                await event.edit("⏰ **Working Hours Mode On (උදේ 7:00 - රෑ 1:00) විය.**")
+                await event.edit("🟢 **Working Hours Mode On (උදේ 7:00 - රෑ 1:00) විය.**")
             elif arg == "off":
                 WORKING_HOURS_ONLY = False
                 await save_bot_data()
-                await event.edit("⏰ **Working Hours Mode Off විය.**")
+                await event.edit("🔴 **Working Hours Mode Off විය.**")
             return
 
         if raw_text.startswith("!welcome"):
@@ -129,11 +140,11 @@ async def command_handler(event):
             if arg == "on":
                 WELCOME_MSG_ENABLED = True
                 await save_bot_data()
-                await event.edit("👋 **Welcome Message ON කරන ලදී.**")
+                await event.edit("🟢 **Welcome Message ON කරන ලදී.**")
             elif arg == "off":
                 WELCOME_MSG_ENABLED = False
                 await save_bot_data()
-                await event.edit("👋 **Welcome Message OFF කරන ලදී.**")
+                await event.edit("🔴 **Welcome Message OFF කරන ලදී.**")
             return
 
         if raw_text.startswith("!addmedia ") and event.is_reply:
@@ -274,24 +285,23 @@ async def reply_handler(event):
             await event.reply(f"🤖 {AFK_REASON}")
             return
 
-        # 2. Welcome Message Check (100% Fixed Pure User ID Matching)
+        # 2. FIXED: Pure Welcome Message Logic for Unsaved Contacts
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
-            try:
-                sender = await event.get_sender()
-                # Sender ඔයාගේ saved contact එකක් නෙවේ නම්
-                is_saved_contact = getattr(sender, 'contact', False) if sender else False
-                if not is_saved_contact:
-                    await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
-                    KNOWN_CONTACTS.add(user_id)
-                    await save_bot_data()
-                    return
-            except Exception as ex:
-                print(f"Welcome Error: {ex}")
+            sender = await event.get_sender()
+            # Telethon එකෙන් Direct Contact Flag එක Check කිරීම
+            is_contact = getattr(sender, 'contact', False) if sender else False
+            
+            # Contact එකක් නෙවේ නම් Welcome Message එක යැවීම
+            if not is_contact:
+                await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
+                KNOWN_CONTACTS.add(user_id)
+                await save_bot_data()
+                return
 
         incoming_raw = event.raw_text.strip().lower()
         replied = False
 
-        # 3. Custom Media Reply Check
+        # 3. Custom Media Reply
         if incoming_raw in MEDIA_RESPONSES:
             msg_id = MEDIA_RESPONSES[incoming_raw]
             saved_msg = await client.get_messages('me', ids=msg_id)
@@ -299,7 +309,7 @@ async def reply_handler(event):
                 await event.reply(saved_msg)
                 replied = True
 
-        # 4. Custom Text Reply Check
+        # 4. Custom Text Reply
         if not replied:
             for word, reply in RESPONSES.items():
                 target_word = word.strip().lower()
@@ -314,7 +324,7 @@ async def reply_handler(event):
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
-        print(f"Reply Handler Error: {e}")
+        print(f"Reply Error: {e}")
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -329,7 +339,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message('me', "🚀 **Userbot Fixed with Status Dashboard & Welcome Logic!**")
+            await client.send_message('me', "🚀 **Userbot Dashboard & Fixed Welcome System Online!**")
         except Exception:
             pass
         await client.run_until_disconnected()
