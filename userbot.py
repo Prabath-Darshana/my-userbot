@@ -65,11 +65,9 @@ AI_REPLY_ENABLED = True
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
-    """ Tries to generate AI response with fallback models & error handling """
     if not ai_client:
         return None
     
-    # List of models to attempt in order
     models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
     
     for model_name in models_to_try:
@@ -209,11 +207,12 @@ async def command_handler(event):
                 f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
                 f" ├ Custom Text Replies ➔ `{len(RESPONSES)} Units`\n"
                 f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)} Units`\n"
-                f" ├ Users Who Blocked Bot ➔ `{len(BOT_BLOCKED_USERS)} Users`\n"
-                f" └ Blocked Users ➔ `{len(IGNORED_USERS)} Users`\n\n"
+                f" ├ Ignored / Bot Disabled Users ➔ `{len(IGNORED_USERS)} Users`\n"
+                f" └ Users Who Blocked Bot ➔ `{len(BOT_BLOCKED_USERS)} Users`\n\n"
                 f"📌 **Daily Study Targets**\n{todo_str}\n"
                 "🤖 **Bot Commands** 👇\n\n"
                 " ➦ `!status` - Dashboard & Countdown\n"
+                " ➦ `!ignored` - ඔයා Bot ව Disable කරපු Users ලාගේ List එක\n"
                 " ➦ `!blockedusers` - Bot එක Block කර ඇති අයගේ List එක\n"
                 " ➦ `!todo <target>` - Target එකක් එකතු කිරීමට\n"
                 " ➦ `!done <number>` - Target එක Complete කිරීමට\n"
@@ -225,7 +224,7 @@ async def command_handler(event):
                 " ➦ `!addmedia word` - Media Auto Reply\n"
                 " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
                 " ➦ `!list` / `!listmedia` - Auto Replies ලැයිස්තුව\n"
-                " ➦ `!block` / `!unblock` - Block/Unblock Chat\n"
+                " ➦ `!block` / `!unblock` - Chat එකේදී Bot Disable/Enable කිරීමට\n"
                 " ➦ `!gcast <msg>` - Message Broadcast\n"
                 " ➦ `!reset` - Clear History & Contacts\n\n"
                 "💡 **Pray to the Satan...! 🩸🖤**\n"
@@ -234,7 +233,30 @@ async def command_handler(event):
             await event.edit(status_msg)
             return
 
-        # 2. CHECK BLOCKED USERS COMMAND
+        # 2. CHECK IGNORED / DISABLED USERS (ඔයා Bot ව Disable/Block කරපු අයගේ List එක)
+        if raw_text in ["!ignored", "!blocklist"]:
+            if not IGNORED_USERS:
+                await event.edit("🟢 **ඔබ විසින් Bot ව වැඩ නොකරන ලෙස Block/Disable කළ අය කිසිවෙක් නැත.**")
+                return
+            
+            await event.edit("🔍 **List එක සකස් කරමින් පවතී...**")
+            msg = "🚫 **ඔබ විසින් Bot Disable / Block කළ Users ලැයිස්තුව:**\n\n"
+            
+            for u_id in list(IGNORED_USERS):
+                try:
+                    user_obj = await client.get_entity(u_id)
+                    if getattr(user_obj, 'username', None):
+                        msg += f"• @{user_obj.username} (`{u_id}`)\n"
+                    else:
+                        first_n = getattr(user_obj, 'first_name', 'User')
+                        msg += f"• [{first_n}](tg://user?id={u_id}) (`{u_id}`)\n"
+                except Exception:
+                    msg += f"• User ID: `{u_id}`\n"
+            
+            await event.edit(msg)
+            return
+
+        # 3. CHECK BLOCKED USERS COMMAND (Bot එක Block කළ අය)
         if raw_text == "!blockedusers":
             if not BOT_BLOCKED_USERS:
                 await event.edit("🟢 **Bot/Userbot එක Block කළ අය කිසිවෙක් නැත.**")
@@ -245,7 +267,7 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 3. TODO TARGET COMMANDS
+        # 4. TODO TARGET COMMANDS
         if raw_text.startswith("!todo "):
             task = raw_text[6:].strip()
             if task:
@@ -273,7 +295,7 @@ async def command_handler(event):
             await event.edit("🧹 **සියලුම Study Targets Clear කළා!**")
             return
 
-        # 4. AFK COMMAND
+        # 5. AFK COMMAND
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
             if arg.lower() == "off":
@@ -286,7 +308,7 @@ async def command_handler(event):
                 await event.edit(f"🟢 **AFK Mode On!**\n\n💬 Message:\n\"{AFK_REASON}\"")
             return
 
-        # 5. SYSTEM TOGGLES
+        # 6. SYSTEM TOGGLES
         if raw_text.startswith("!hours "):
             val = raw_text[7:].strip().lower()
             WORKING_HOURS_ONLY = (val == "on")
@@ -301,7 +323,7 @@ async def command_handler(event):
             await event.edit(f"⚙️ **Welcome Message:** `{'ON' if WELCOME_MSG_ENABLED else 'OFF'}`")
             return
 
-        # 6. CUSTOM REPLIES
+        # 7. CUSTOM REPLIES
         if raw_text.startswith("!add ") and "=" in raw_text:
             parts = raw_text[5:].split("=", 1)
             key, val = parts[0].strip().lower(), parts[1].strip()
@@ -328,7 +350,7 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 7. MEDIA REPLIES
+        # 8. MEDIA REPLIES
         if raw_text.startswith("!addmedia "):
             key = raw_text[10:].strip().lower()
             reply_msg = await event.get_reply_message()
@@ -358,21 +380,21 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 8. BLOCK & UNBLOCK
+        # 9. BLOCK & UNBLOCK (Chat එකකදී Bot Disable/Enable කිරීම)
         if raw_text in ["!block", "!unblock"]:
             chat = await event.get_chat()
             if event.is_private:
                 if raw_text == "!block":
                     IGNORED_USERS.add(chat.id)
                     await save_bot_data()
-                    await event.edit("🚫 **User Blocked.**")
+                    await event.edit("🚫 **මේ Chat එක සඳහා Bot Disable කරන ලදී.** (Bot මෙතැනදී Reply කරන්නේ නැත)")
                 else:
                     IGNORED_USERS.discard(chat.id)
                     await save_bot_data()
-                    await event.edit("✅ **User Unblocked.**")
+                    await event.edit("✅ **මේ Chat එක සඳහා Bot Enable කරන ලදී.**")
             return
 
-        # 9. BROADCAST (!gcast)
+        # 10. BROADCAST (!gcast)
         if raw_text.startswith("!gcast "):
             bc_msg = raw_text[7:].strip()
             if bc_msg:
@@ -386,7 +408,7 @@ async def command_handler(event):
                 await event.edit(f"✅ Broadcast Complete! Sent to `{sent_count}` users.")
             return
 
-        # 10. RESET HISTORY
+        # 11. RESET HISTORY
         if raw_text == "!reset":
             REPLIED_USERS.clear()
             KNOWN_CONTACTS.clear()
