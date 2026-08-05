@@ -39,23 +39,40 @@ RESPONSES = load_responses()
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
     global RESPONSES
-    text = event.raw_text.strip()
+    raw_text = event.raw_text.strip()
     
-    if text.startswith("!add "):
-        try:
-            content = text[5:]
-            word, reply = content.split("=", 1)
-            word = word.strip().lower()
-            reply = reply.strip()
-            
-            RESPONSES[word] = reply
-            save_responses(RESPONSES)
-            await event.edit(f"✅ **එකතු කළා:**\n`{word}` ➔ {reply}")
-        except Exception:
-            await event.edit("❌ **භාවිතය:** `!add word=reply` ලෙස යවන්න.")
+    # 1. පේළි කිහිපයකින් එන !add පරීක්ෂා කිරීම
+    lines = raw_text.split('\n')
+    added_count = 0
+    added_list = []
 
-    elif text.startswith("!del "):
-        word = text[5:].strip().lower()
+    for line in lines:
+        line = line.strip()
+        if line.startswith("!add "):
+            try:
+                content = line[5:]
+                if "=" in content:
+                    word, reply = content.split("=", 1)
+                    word = word.strip().lower()
+                    reply = reply.strip()
+                    
+                    RESPONSES[word] = reply
+                    added_list.append(f"`{word}` ➔ {reply}")
+                    added_count += 1
+            except Exception:
+                pass
+
+    if added_count > 0:
+        save_responses(RESPONSES)
+        if added_count == 1:
+            await event.edit(f"✅ **එකතු කළා:**\n{added_list[0]}")
+        else:
+            await event.edit(f"✅ **Auto Replies {added_count}ක් සාර්ථකව එකතු කළා!**")
+        return
+
+    # 2. !del Command එක
+    if raw_text.startswith("!del "):
+        word = raw_text[5:].strip().lower()
         if word in RESPONSES:
             del RESPONSES[word]
             save_responses(RESPONSES)
@@ -63,16 +80,18 @@ async def command_handler(event):
         else:
             await event.edit(f"❌ `{word}` සොයාගත නොහැකි විය.")
 
-    elif text == "!clear":
+    # 3. !clear Command එක
+    elif raw_text == "!clear":
         RESPONSES = {}
         save_responses(RESPONSES)
         await event.edit("🗑️ **ලැයිස්තුවේ තිබූ සියලුම Auto Replies මකා දමන ලදී!**")
 
-    elif text == "!list":
+    # 4. !list Command එක
+    elif raw_text == "!list":
         if not RESPONSES:
             await event.edit("📝 **ලැයිස්තුව හිස්ය.**")
             return
-        msg = "📝 **දැනට ඇති Auto Replies:**\n\n"
+        msg = f"📝 **දැනට ඇති Auto Replies ({len(RESPONSES)}):**\n\n"
         for w, r in RESPONSES.items():
             msg += f"• `{w}` ➔ {r}\n"
         await event.edit(msg)
