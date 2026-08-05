@@ -22,7 +22,7 @@ client = TelegramClient(StringSession(session_str), api_id, api_hash)
 
 DATA_FILE = 'responses.json'
 
-# 📌 ඔයා ලබා දුන්න Sticker ID එක
+# 📌 Sticker ID එක
 DEFAULT_STICKER_ID = "CAACAgUAAxkBAAERqmJqczvmWxVuTaonLpusGPxAZwABVSAAAr0XAAIIx-FUCt0Cyu8WSAk9BA"
 
 def load_responses():
@@ -105,22 +105,26 @@ async def reply_handler(event):
             text = event.raw_text.lower()
             replied = False
             
-            # 1. Custom list එකේ තිබෙන වචන වලට Text reply එක යැවීම
+            # 1. Custom list එකේ තිබෙන වචන වලට Reply කිරීම
             for word, reply in RESPONSES.items():
                 if word in text:
                     await event.reply(reply)
                     replied = True
                     break
                     
-            # 2. List එකේ නැති විට Offline නම් Sticker එක යැවීම
+            # 2. List එකේ නැති විට Sticker එක (හෝ Text එක) යැවීම
             if not replied:
                 try:
                     me = await client.get_me()
                     is_online = isinstance(getattr(me, 'status', None), UserStatusOnline)
                     
                     if not is_online:
-                        # Text වෙනුවට Sticker එකක් යවනු ලබයි
-                        await client.send_file(event.chat_id, DEFAULT_STICKER_ID, reply_to=event.id)
+                        try:
+                            # Sticker එක යැවීමට උත්සාහ කරයි
+                            await client.send_file(event.chat_id, DEFAULT_STICKER_ID, reply_to=event.id)
+                        except Exception:
+                            # Sticker එක බැරි වුවහොත් Text එක යවයි
+                            await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
                 except Exception:
                     pass
     except Exception:
