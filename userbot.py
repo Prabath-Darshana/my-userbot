@@ -17,6 +17,9 @@ def home():
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
+# ඔයාගේ Storage Channel ID එක
+STORAGE_CHANNEL = -1004489211765
+
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential_updates=True)
 
@@ -34,7 +37,7 @@ WELCOME_MSG_ENABLED = True
 async def load_bot_data():
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
     try:
-        async for msg in client.iter_messages('me', search="[USERBOT_DATA_SAVE]"):
+        async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             if msg.text and "[USERBOT_DATA_SAVE]" in msg.text:
                 json_str = msg.text.split("[USERBOT_DATA_SAVE]")[1].strip()
                 data = json.loads(json_str)
@@ -61,10 +64,10 @@ async def save_bot_data():
         }
         text_to_save = f"[USERBOT_DATA_SAVE]\n{json.dumps(data, ensure_ascii=False)}"
         
-        async for msg in client.iter_messages('me', search="[USERBOT_DATA_SAVE]"):
+        async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             await msg.delete()
             
-        await client.send_message('me', text_to_save)
+        await client.send_message(STORAGE_CHANNEL, text_to_save)
     except Exception as e:
         print(f"Data Save Error: {e}")
 
@@ -79,9 +82,8 @@ async def command_handler(event):
         if AFK_MODE and not raw_text.startswith("!afk"):
             AFK_MODE = False
             AFK_REASON = ""
-            await client.send_message('me', "🟢 **AFK Mode Turn Off විය.**")
+            await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode Turn Off විය.**")
 
-        # Status Dashboard
         if raw_text == "!status":
             status_msg = (
                 "⚙️ **SYSTEM DASHBOARD & CONTROL PANEL**\n\n"
@@ -282,18 +284,15 @@ async def reply_handler(event):
             if 1 <= current_hour < 7:
                 return
 
-        # 1. AFK Mode Check
         if AFK_MODE:
             await event.reply(f"🤖 {AFK_REASON}")
             return
 
-        # 2. FIXED: Accurate Welcome Message Check using API Request
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 full_user = await client(GetFullUserRequest(user_id))
                 user_obj = full_user.users[0]
                 
-                # Contact එකක් නෙවේ නම් සහ Bot කෙනෙක් නෙවේ නම්
                 if not user_obj.contact and not user_obj.bot:
                     await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
                     KNOWN_CONTACTS.add(user_id)
@@ -305,15 +304,13 @@ async def reply_handler(event):
         incoming_raw = event.raw_text.strip().lower()
         replied = False
 
-        # 3. Custom Media Reply
         if incoming_raw in MEDIA_RESPONSES:
             msg_id = MEDIA_RESPONSES[incoming_raw]
-            saved_msg = await client.get_messages('me', ids=msg_id)
+            saved_msg = await client.get_messages(STORAGE_CHANNEL, ids=msg_id)
             if saved_msg:
                 await event.reply(saved_msg)
                 replied = True
 
-        # 4. Custom Text Reply
         if not replied:
             for word, reply in RESPONSES.items():
                 target_word = word.strip().lower()
@@ -322,7 +319,6 @@ async def reply_handler(event):
                     replied = True
                     break
 
-        # 5. Default Reply
         if not replied and user_id not in REPLIED_USERS:
             await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
             REPLIED_USERS.add(user_id)
@@ -343,7 +339,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message('me', "🚀 **Userbot Fixed with Direct API Welcome Check!**")
+            await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Storage System Connected to Private Channel!**")
         except Exception:
             pass
         await client.run_until_disconnected()
