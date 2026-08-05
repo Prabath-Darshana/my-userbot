@@ -4,6 +4,7 @@ import re
 import time
 import asyncio
 import threading
+import logging
 from datetime import datetime
 import pytz
 from flask import Flask
@@ -14,11 +15,15 @@ from telethon.tl.types import UserStatusOnline
 from google import genai
 import yt_dlp
 
+# Logging Configuration
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("Userbot")
+
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Userbot Utility Active!"
+    return "Userbot Utility Active & Alive!"
 
 # ---------------- CONFIGURATION ----------------
 API_ID = 35039780
@@ -32,13 +37,13 @@ ai_client = None
 if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
+        logger.info("Gemini AI Client initialized successfully.")
     except Exception as e:
-        print(f"AI Client Setup Error: {e}")
+        logger.error(f"AI Client Setup Error: {e}")
 
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), API_ID, API_HASH, sequential_updates=True)
 
-# Default AFK Message
 DEFAULT_AFK_MSG = "මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨"
 
 # System Variables
@@ -76,9 +81,10 @@ async def load_bot_data():
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
                 AI_REPLY_ENABLED = data.get("ai_reply", True)
                 TODO_LIST = data.get("todo_list", [])
+                logger.info("Bot data loaded successfully from Storage Channel.")
                 break
     except Exception as e:
-        print(f"Data Load Error: {e}")
+        logger.error(f"Data Load Error: {e}")
 
 async def save_bot_data():
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
@@ -99,8 +105,9 @@ async def save_bot_data():
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             await msg.delete()
         await client.send_message(STORAGE_CHANNEL, text_to_save)
+        logger.info("Bot data saved successfully.")
     except Exception as e:
-        print(f"Data Save Error: {e}")
+        logger.error(f"Data Save Error: {e}")
 
 # Helper: Check if account owner is online
 async def is_owner_online():
@@ -141,7 +148,7 @@ async def command_handler(event):
                 todo_str = " └ No active targets set\n"
 
             status_msg = (
-                "👋 **Hello, Student!**\n\n"
+                "👋 **Hello, Satan!**\n\n"
                 f"🎯 **A/L Exam Countdown (2028-08-10)**\n"
                 f" └ `{days_left} Days Remaining!`\n\n"
                 "⚙️ **System Settings**\n"
@@ -167,7 +174,7 @@ async def command_handler(event):
                 " ➦ `!block` / `!unblock` - Block/Unblock Chat\n"
                 " ➦ `!gcast <msg>` - Message Broadcast\n"
                 " ➦ `!reset` - Clear History & Contacts\n\n"
-                "💡 **A/L Combined Maths Userbot System**\n"
+                "💡 **Pray to the Satan...! 🩸🖤**\n"
                 "🚀 Status: Active & Operational"
             )
             await event.edit(status_msg)
@@ -201,7 +208,7 @@ async def command_handler(event):
             await event.edit("🧹 **සියලුම Study Targets Clear කළා!**")
             return
 
-        # 3. AFK COMMAND (Updated Logic)
+        # 3. AFK COMMAND
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
             if arg.lower() == "off":
@@ -310,7 +317,7 @@ async def command_handler(event):
                     try:
                         await client.send_message(user, bc_msg)
                         sent_count += 1
-                        time.sleep(0.5)
+                        await asyncio.sleep(0.5)
                     except Exception:
                         pass
                 await event.edit(f"✅ Broadcast Complete! Sent to `{sent_count}` users.")
@@ -325,7 +332,7 @@ async def command_handler(event):
             return
 
     except Exception as e:
-        print(f"Owner Handler Error: {e}")
+        logger.error(f"Owner Handler Error: {e}")
 
 # ---------------- PUBLIC & INCOMING HANDLER ----------------
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
@@ -338,7 +345,7 @@ async def reply_handler(event):
 
         incoming_raw = event.raw_text.strip() if event.raw_text else ""
 
-        # ALWAYS SEND WELCOME MESSAGE FOR NEW CONTACTS
+        # WELCOME MESSAGE FOR NEW CONTACTS
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 full_user = await client(GetFullUserRequest(user_id))
@@ -356,7 +363,7 @@ async def reply_handler(event):
                     KNOWN_CONTACTS.add(user_id)
                     await save_bot_data()
             except Exception as ex:
-                print(f"Welcome Fetch Error: {ex}")
+                logger.error(f"Welcome Fetch Error: {ex}")
 
         if not incoming_raw:
             return
@@ -434,12 +441,12 @@ async def reply_handler(event):
             return
         USER_LAST_MSG_TIME[user_id] = current_time
 
-        # AFK MODE CHECK (Sends Custom AFK Message)
+        # AFK MODE CHECK
         if AFK_MODE:
             await event.reply(AFK_REASON)
             return
 
-        # SMART AI AUTO-REPLY LOGIC (Skip if Owner is Online or Message is Read)
+        # SMART AI AUTO-REPLY LOGIC
         if user_id not in REPLIED_USERS:
             await asyncio.sleep(5)
             
@@ -456,21 +463,29 @@ async def reply_handler(event):
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
-        print(f"Public Handler Error: {e}")
+        logger.error(f"Public Handler Error: {e}")
 
-# ---------------- FLASK & BOT START ----------------
+# ---------------- FLASK & BOT ASYNC START ----------------
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Werkzeug logs අඩු කර Render logs පිරිසිදුව තබා ගැනීම
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+async def main():
+    logger.info("Starting Telethon Client...")
+    await client.start()
+    logger.info("Userbot Logged In Successfully!")
+    await load_bot_data()
+    await client.run_until_disconnected()
 
 if __name__ == "__main__":
+    # Flask app එක daemon thread එකකින් background එකේ Run කිරීම
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
     
-    async def start_bot():
-        await client.start()
-        await load_bot_data()
-        await client.run_until_disconnected()
-
-    client.loop.run_until_complete(start_bot())
+    # Telegram client එක Async main loop එකෙන් run කිරීම
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
