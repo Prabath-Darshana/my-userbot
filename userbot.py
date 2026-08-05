@@ -61,7 +61,7 @@ WORKING_HOURS_ONLY = False
 START_HOUR = 1
 END_HOUR = 7
 WELCOME_MSG_ENABLED = True
-AI_REPLY_ENABLED = True
+AI_REPLY_ENABLED = False  # මෙතැන False කර ඇත (Quota Error එක වළක්වා ගැනීමට)
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
@@ -101,7 +101,7 @@ async def load_bot_data():
                 START_HOUR = data.get("start_hour", 1)
                 END_HOUR = data.get("end_hour", 7)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
-                AI_REPLY_ENABLED = data.get("ai_reply", True)
+                # AI_REPLY_ENABLED ඉතිරි කර ඇත, අවශ්‍ය නම් persistent data වලට අනුව වෙනස් වේ
                 TODO_LIST = data.get("todo_list", [])
                 logger.info("Bot data loaded successfully from Storage Channel.")
                 break
