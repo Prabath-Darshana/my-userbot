@@ -19,7 +19,6 @@ api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), api_id, api_hash, sequential_updates=True)
 
-# Main Memory Variables
 RESPONSES = {}
 MEDIA_RESPONSES = {}
 IGNORED_USERS = set()
@@ -29,9 +28,8 @@ KNOWN_CONTACTS = set()
 AFK_MODE = False
 AFK_REASON = ""
 WORKING_HOURS_ONLY = False
-WELCOME_MSG_ENABLED = True  # Default ලෙසම ON කර ඇත
+WELCOME_MSG_ENABLED = True  # Default On
 
-# Saved Messages Data Persistence
 async def load_bot_data():
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED
     try:
@@ -44,7 +42,6 @@ async def load_bot_data():
                 IGNORED_USERS = set(data.get("ignored", []))
                 WORKING_HOURS_ONLY = data.get("working_hours", False)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
-                print("Data Loaded Successfully!")
                 break
     except Exception as e:
         print(f"Data Load Error: {e}")
@@ -68,7 +65,6 @@ async def save_bot_data():
     except Exception as e:
         print(f"Data Save Error: {e}")
 
-# 1. Commands Handler
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED
@@ -80,7 +76,7 @@ async def command_handler(event):
         if AFK_MODE and not raw_text.startswith("!afk"):
             AFK_MODE = False
             AFK_REASON = ""
-            await client.send_message('me', "🟢 **AFK Mode Turn Off විය (ඔබ Active විය).**")
+            await client.send_message('me', "🟢 **AFK Mode Turn Off විය.**")
 
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
@@ -108,7 +104,7 @@ async def command_handler(event):
             elif arg == "off":
                 WORKING_HOURS_ONLY = False
                 await save_bot_data()
-                await event.edit("⏰ **Working Hours Mode Off විය (24/7 Auto Reply).**")
+                await event.edit("⏰ **Working Hours Mode Off විය.**")
             return
 
         if raw_text.startswith("!welcome"):
@@ -116,11 +112,11 @@ async def command_handler(event):
             if arg == "on":
                 WELCOME_MSG_ENABLED = True
                 await save_bot_data()
-                await event.edit("👋 **New Contact Welcome Message On විය.**")
+                await event.edit("👋 **Welcome Message ON කරන ලදී.**")
             elif arg == "off":
                 WELCOME_MSG_ENABLED = False
                 await save_bot_data()
-                await event.edit("👋 **Welcome Message Off විය.**")
+                await event.edit("👋 **Welcome Message OFF කරන ලදී.**")
             return
 
         if raw_text.startswith("!addmedia ") and event.is_reply:
@@ -238,16 +234,16 @@ async def command_handler(event):
     except Exception:
         pass
 
-# 2. Auto Reply Logic
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
     global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
     try:
         sender = await event.get_sender()
+        user_id = event.sender_id
+
         if not sender or getattr(sender, 'bot', False):
             return
 
-        user_id = event.sender_id
         if user_id in IGNORED_USERS:
             return
 
@@ -257,22 +253,23 @@ async def reply_handler(event):
             if 1 <= current_hour < 7:
                 return
 
-        incoming_raw = event.raw_text.strip().lower()
-
-        # 1. AFK Reply Logic
+        # 1. AFK Mode Check
         if AFK_MODE:
             await event.reply(f"🤖 {AFK_REASON}")
             return
 
-        # 2. First-time Contact Welcome Check (මුලින්ම Welcome Message එක යවීම)
-        if WELCOME_MSG_ENABLED and getattr(sender, 'contact', False) is False and user_id not in KNOWN_CONTACTS:
-            await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
-            KNOWN_CONTACTS.add(user_id)
-            return  # Welcome එක ගිය පසු ඊළඟ මැසේජ් එකෙන් Custom Replies යැවීමට සලස්වයි
+        # 2. Direct Welcome Message Check (100% Reliable Check)
+        if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
+            is_contact = getattr(sender, 'contact', False)
+            if not is_contact:
+                await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
+                KNOWN_CONTACTS.add(user_id)
+                return
 
+        incoming_raw = event.raw_text.strip().lower()
         replied = False
 
-        # 3. Media Auto Reply Match
+        # 3. Custom Media Reply Check
         if incoming_raw in MEDIA_RESPONSES:
             msg_id = MEDIA_RESPONSES[incoming_raw]
             saved_msg = await client.get_messages('me', ids=msg_id)
@@ -280,7 +277,7 @@ async def reply_handler(event):
                 await event.reply(saved_msg)
                 replied = True
 
-        # 4. Text Auto Reply Match
+        # 4. Custom Text Reply Check
         if not replied:
             for word, reply in RESPONSES.items():
                 target_word = word.strip().lower()
@@ -289,13 +286,13 @@ async def reply_handler(event):
                     replied = True
                     break
 
-        # 5. Default Reply (Custom එකක් Match නොවුණොත්)
+        # 5. Default Reply
         if not replied and user_id not in REPLIED_USERS:
             await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
             REPLIED_USERS.add(user_id)
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Reply Error: {e}")
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -310,7 +307,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message('me', "🚀 **Userbot Updated with Direct Welcome Priority!**")
+            await client.send_message('me', "🚀 **Userbot Fixed & Ready for Welcome Messages!**")
         except Exception:
             pass
         await client.run_until_disconnected()
