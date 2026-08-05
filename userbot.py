@@ -1,27 +1,22 @@
 import json
 import os
-import threading
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-# 1. Web Service එක Port Binding සඳහා Flask App එක
+# 1. Render Port Binding සඳහා Flask App එක
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Userbot is running perfectly!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    return "Userbot is Live!"
 
 # 2. Telegram Credentials
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
-# Render Environment Variable එකෙන් ගනී, නැතහොත් පහත "" ඇතුළට direct paste කරන්න:
-session_str = os.environ.get("STRING_SESSION", "ඔබට_ලැබුණු_STRING_SESSION_එක_මෙතනට_PASTE_කරන්න")
+# Render Environment Variable එකෙන් Session එක ගනී
+session_str = os.environ.get("STRING_SESSION", "")
 
 client = TelegramClient(StringSession(session_str), api_id, api_hash)
 
@@ -103,10 +98,10 @@ async def reply_handler(event):
         if not replied:
             await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
 
+# Telegram Bot එක Background එකේ Connect කිරීම
+client.loop.create_task(client.start())
+
 if __name__ == "__main__":
-    # Flask web server එක background thread එකක run කිරීම
-    threading.Thread(target=run_flask, daemon=True).start()
-    
-    print("Userbot එක සාර්ථකව වැඩ කරමින් පවතී...")
-    client.start()
-    client.run_until_disconnected()
+    port = int(os.environ.get("PORT", 10000))
+    # Flask main process එක ලෙස Run වන නිසා Render එකට Port එක ඉක්මනින් Detect වේ
+    app.run(host="0.0.0.0", port=port)
