@@ -65,12 +65,11 @@ AI_REPLY_ENABLED = True
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
-    """ Fixed model names & handled quota errors """
     if not ai_client:
         return None
     
-    # Official supported models
-    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
+    # නිවැරදිව වැඩ කරන Google AI Model එක
+    models_to_try = ['gemini-2.0-flash']
     
     for model_name in models_to_try:
         try:
@@ -84,7 +83,7 @@ async def generate_ai_response(prompt_text):
             err_str = str(e)
             logger.warning(f"Failed with {model_name}: {err_str}")
             if "429" in err_str:
-                continue
+                return "QUOTA_EXCEEDED"
             continue
             
     return None
@@ -235,7 +234,7 @@ async def command_handler(event):
             await event.edit(status_msg)
             return
 
-        # 2. CHECK IGNORED USERS (ඔයා !block දාලා Bot ව Disable කළ අයගේ List එක)
+        # 2. CHECK IGNORED USERS
         if raw_text in ["!ignored", "!blocklist"]:
             if not IGNORED_USERS:
                 await event.edit("🟢 **ඔබ විසින් Bot ව වැඩ නොකරන ලෙස Block/Disable කළ අය කිසිවෙක් නැත.**")
@@ -258,7 +257,7 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 3. CHECK BLOCKED USERS COMMAND (Bot එක Block කළ අය)
+        # 3. CHECK BLOCKED USERS COMMAND
         if raw_text == "!blockedusers":
             if not BOT_BLOCKED_USERS:
                 await event.edit("🟢 **Bot/Userbot එක Block කළ අය කිසිවෙක් නැත.**")
@@ -382,14 +381,14 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 9. BLOCK & UNBLOCK (Chat එකකදී Bot Disable/Enable කිරීම)
+        # 9. BLOCK & UNBLOCK
         if raw_text in ["!block", "!unblock"]:
             chat = await event.get_chat()
             if event.is_private:
                 if raw_text == "!block":
                     IGNORED_USERS.add(chat.id)
                     await save_bot_data()
-                    await event.edit("🚫 **මේ Chat එක සඳහා Bot Disable කරන ලදී.** (Bot මෙතැනදී Reply කරන්නේ නැත)")
+                    await event.edit("🚫 **මේ Chat එක සඳහා Bot Disable කරන ලදී.**")
                 else:
                     IGNORED_USERS.discard(chat.id)
                     await save_bot_data()
@@ -432,7 +431,6 @@ async def reply_handler(event):
         if not user_id or user_id in IGNORED_USERS:
             return
 
-        # Unblock check
         user_str = f"@{sender.username}" if sender and getattr(sender, 'username', None) else f"[{getattr(sender, 'first_name', 'User')}](tg://user?id={user_id})"
         if user_str in BOT_BLOCKED_USERS:
             BOT_BLOCKED_USERS.discard(user_str)
@@ -440,7 +438,7 @@ async def reply_handler(event):
 
         incoming_raw = event.raw_text.strip() if event.raw_text else ""
 
-        # WELCOME MESSAGE FOR NEW CONTACTS
+        # WELCOME MESSAGE
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 is_bot = getattr(sender, 'bot', False)
@@ -482,7 +480,7 @@ async def reply_handler(event):
             await safe_send_message(event.chat_id, f"🎯 **2028 A/L Exam එකට තව දින `{days_left}` ක් තියෙනවා!**\n\n_Good Luck with your Studies!_ 📚", reply_to=event)
             return
 
-        # PUBLIC COMMAND 3: GENERAL STUDY HELPER (!ask)
+        # PUBLIC COMMAND 3: STUDY HELPER (!ask)
         if incoming_raw.lower().startswith("!ask "):
             query = incoming_raw[5:].strip()
             if ai_client and query:
@@ -494,10 +492,12 @@ async def reply_handler(event):
                 ai_text = await generate_ai_response(prompt)
                 
                 if status_msg:
-                    if ai_text:
+                    if ai_text == "QUOTA_EXCEEDED":
+                        await status_msg.edit("⚠️ **AI API Quota Exceeded:** කරුණාකර අලුත් API Key එකක් Render එකට Update කරන්න.")
+                    elif ai_text:
                         await status_msg.edit(f"📚 **Study Solution:**\n\n{ai_text}")
                     else:
-                        await status_msg.edit("⚠️ **AI Busy / Limits Reached:** කරුණාකර මොහොතකින් නැවත උත්සාහ කරන්න.")
+                        await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය.")
             return
 
         # PUBLIC COMMAND 4: YOUTUBE MP3 DOWNLOADER
@@ -553,7 +553,7 @@ async def reply_handler(event):
             if AI_REPLY_ENABLED and ai_client:
                 prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
                 ai_text = await generate_ai_response(prompt)
-                if ai_text:
+                if ai_text and ai_text != "QUOTA_EXCEEDED":
                     await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto Reply - Type !help for commands)_", reply_to=event)
             REPLIED_USERS.add(user_id)
 
