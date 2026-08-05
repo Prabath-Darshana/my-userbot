@@ -4,7 +4,6 @@ import threading
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.types import UserStatusOnline
 
 # 1. Render Port Binding සඳහා Flask App එක
 app = Flask(__name__)
@@ -21,9 +20,6 @@ session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), api_id, api_hash)
 
 DATA_FILE = 'responses.json'
-
-# 📌 Sticker ID එක
-DEFAULT_STICKER_ID = "CAACAgUAAxkBAAERqmJqczvmWxVuTaonLpusGPxAZwABVSAAAr0XAAIIx-FUCt0Cyu8WSAk9BA"
 
 def load_responses():
     if os.path.exists(DATA_FILE):
@@ -47,6 +43,7 @@ async def command_handler(event):
         added_count = 0
         added_list = []
 
+        # 1. !add Command එක (Multi-line support)
         for line in lines:
             line = line.strip()
             if line.startswith("!add "):
@@ -71,6 +68,7 @@ async def command_handler(event):
                 await event.edit(f"✅ **Auto Replies {added_count}ක් සාර්ථකව එකතු කළා!**")
             return
 
+        # 2. !del Command එක
         if raw_text.startswith("!del "):
             word = raw_text[5:].strip().lower()
             if word in RESPONSES:
@@ -80,11 +78,13 @@ async def command_handler(event):
             else:
                 await event.edit(f"❌ `{word}` සොයාගත නොහැකි විය.")
 
+        # 3. !clear Command එක
         elif raw_text == "!clear":
             RESPONSES = {}
             save_responses(RESPONSES)
             await event.edit("🗑️ **ලැයිස්තුවේ තිබූ සියලුම Auto Replies මකා දමන ලදී!**")
 
+        # 4. !list Command එක
         elif raw_text == "!list":
             if not RESPONSES:
                 await event.edit("📝 **ලැයිස්තුව හිස්ය.**")
@@ -101,32 +101,21 @@ async def reply_handler(event):
     try:
         sender = await event.get_sender()
         
+        # Bot කෙනෙක් නෙමෙයි නම් පමණක් Reply කිරීම
         if sender and not getattr(sender, 'bot', False):
             text = event.raw_text.lower()
             replied = False
             
-            # 1. Custom list එකේ තිබෙන වචන වලට Reply කිරීම
+            # 1. Custom list එකේ තිබෙන වචන වලට Text reply එක යැවීම
             for word, reply in RESPONSES.items():
                 if word in text:
                     await event.reply(reply)
                     replied = True
                     break
                     
-            # 2. List එකේ නැති විට Sticker එක (හෝ Text එක) යැවීම
+            # 2. List එකේ නැති වෙනත් ඕනෑම මැසේජ් එකකට Default Message එක යැවීම
             if not replied:
-                try:
-                    me = await client.get_me()
-                    is_online = isinstance(getattr(me, 'status', None), UserStatusOnline)
-                    
-                    if not is_online:
-                        try:
-                            # Sticker එක යැවීමට උත්සාහ කරයි
-                            await client.send_file(event.chat_id, DEFAULT_STICKER_ID, reply_to=event.id)
-                        except Exception:
-                            # Sticker එක බැරි වුවහොත් Text එක යවයි
-                            await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
-                except Exception:
-                    pass
+                await event.reply("අඩෝ මම පොඩ්ඩක් Offline ඉන්නේ බං. 💻 ආපු ගමන් මැසේජ් එකක් දාන්නම්!")
     except Exception:
         pass
 
@@ -141,6 +130,7 @@ if __name__ == "__main__":
     
     print("Userbot එක සාර්ථකව වැඩ කරමින් පවතී...")
     
+    # Crash නොවීම සඳහා Infinite Loop එකක්
     while True:
         try:
             client.start()
