@@ -6,6 +6,7 @@ import pytz
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from telethon.tl.functions.users import GetFullUserRequest
 
 app = Flask(__name__)
 
@@ -80,7 +81,7 @@ async def command_handler(event):
             AFK_REASON = ""
             await client.send_message('me', "🟢 **AFK Mode Turn Off විය.**")
 
-        # 1. !status Command (Dashboard)
+        # Status Dashboard
         if raw_text == "!status":
             status_msg = (
                 "⚙️ **SYSTEM DASHBOARD & CONTROL PANEL**\n\n"
@@ -89,7 +90,8 @@ async def command_handler(event):
                 f"• **Welcome Message:** {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
                 f"• **Custom Text Replies:** `{len(RESPONSES)}` Units\n"
                 f"• **Custom Media Replies:** `{len(MEDIA_RESPONSES)}` Units\n"
-                f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n\n"
+                f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n"
+                f"• **Welcomed Contacts Count:** `{len(KNOWN_CONTACTS)}` Users\n\n"
                 "📌 **AVAILABLE COMMANDS:**\n"
                 "• `!status` - Dashboard එක බලාගැනීමට\n"
                 "• `!afk <hethuwa>` / `!afk off` - AFK On/Off\n"
@@ -101,7 +103,7 @@ async def command_handler(event):
                 "• `!list` / `!listmedia` - Auto Reply ලැයිස්තුව\n"
                 "• `!block` / `!unblock` - Chat එකක් Block/Unblock\n"
                 "• `!gcast <msg>` - සියල්ලන්ටම Message යැවීමට\n"
-                "• `!reset` - Reply History Clear කිරීමට"
+                "• `!reset` - History & Welcomed List Clear කිරීමට"
             )
             await event.edit(status_msg)
             return
@@ -285,18 +287,20 @@ async def reply_handler(event):
             await event.reply(f"🤖 {AFK_REASON}")
             return
 
-        # 2. FIXED: Pure Welcome Message Logic for Unsaved Contacts
+        # 2. FIXED: Accurate Welcome Message Check using API Request
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
-            sender = await event.get_sender()
-            # Telethon එකෙන් Direct Contact Flag එක Check කිරීම
-            is_contact = getattr(sender, 'contact', False) if sender else False
-            
-            # Contact එකක් නෙවේ නම් Welcome Message එක යැවීම
-            if not is_contact:
-                await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
-                KNOWN_CONTACTS.add(user_id)
-                await save_bot_data()
-                return
+            try:
+                full_user = await client(GetFullUserRequest(user_id))
+                user_obj = full_user.users[0]
+                
+                # Contact එකක් නෙවේ නම් සහ Bot කෙනෙක් නෙවේ නම්
+                if not user_obj.contact and not user_obj.bot:
+                    await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
+                    KNOWN_CONTACTS.add(user_id)
+                    await save_bot_data()
+                    return
+            except Exception as ex:
+                print(f"Welcome Fetch Error: {ex}")
 
         incoming_raw = event.raw_text.strip().lower()
         replied = False
@@ -339,7 +343,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message('me', "🚀 **Userbot Dashboard & Fixed Welcome System Online!**")
+            await client.send_message('me', "🚀 **Userbot Fixed with Direct API Welcome Check!**")
         except Exception:
             pass
         await client.run_until_disconnected()
