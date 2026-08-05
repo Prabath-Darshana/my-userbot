@@ -28,10 +28,10 @@ KNOWN_CONTACTS = set()
 AFK_MODE = False
 AFK_REASON = ""
 WORKING_HOURS_ONLY = False
-WELCOME_MSG_ENABLED = True  # Default On
+WELCOME_MSG_ENABLED = True
 
 async def load_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
     try:
         async for msg in client.iter_messages('me', search="[USERBOT_DATA_SAVE]"):
             if msg.text and "[USERBOT_DATA_SAVE]" in msg.text:
@@ -40,6 +40,7 @@ async def load_bot_data():
                 RESPONSES = data.get("responses", {})
                 MEDIA_RESPONSES = data.get("media_responses", {})
                 IGNORED_USERS = set(data.get("ignored", []))
+                KNOWN_CONTACTS = set(data.get("known_contacts", []))
                 WORKING_HOURS_ONLY = data.get("working_hours", False)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
                 break
@@ -47,12 +48,13 @@ async def load_bot_data():
         print(f"Data Load Error: {e}")
 
 async def save_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
     try:
         data = {
             "responses": RESPONSES,
             "media_responses": MEDIA_RESPONSES,
             "ignored": list(IGNORED_USERS),
+            "known_contacts": list(KNOWN_CONTACTS),
             "working_hours": WORKING_HOURS_ONLY,
             "welcome_msg": WELCOME_MSG_ENABLED
         }
@@ -67,7 +69,7 @@ async def save_bot_data():
 
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
     try:
         raw_text = event.raw_text.strip()
         lines = raw_text.split('\n')
@@ -77,6 +79,21 @@ async def command_handler(event):
             AFK_MODE = False
             AFK_REASON = ""
             await client.send_message('me', "🟢 **AFK Mode Turn Off විය.**")
+
+        # 1. !status Command (සියලුම Dashboard Status බලාගැනීම)
+        if raw_text == "!status":
+            status_msg = (
+                "⚙️ **Userbot System Status**\n\n"
+                f"• **AFK Mode:** {'🔴 ON' if AFK_MODE else '🟢 OFF'}\n"
+                f"• **Working Hours (7 AM - 1 AM):** {'🔴 ON' if WORKING_HOURS_ONLY else '🟢 OFF'}\n"
+                f"• **Welcome Message:** {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
+                f"• **Custom Text Replies:** `{len(RESPONSES)}` Units\n"
+                f"• **Custom Media Replies:** `{len(MEDIA_RESPONSES)}` Units\n"
+                f"• **Blocked Users:** `{len(IGNORED_USERS)}` Users\n"
+                f"• **Welcomed Users History:** `{len(KNOWN_CONTACTS)}` Contacts"
+            )
+            await event.edit(status_msg)
+            return
 
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
@@ -229,7 +246,8 @@ async def command_handler(event):
         elif raw_text == "!reset":
             REPLIED_USERS.clear()
             KNOWN_CONTACTS.clear()
-            await event.edit("🔄 **History Reset කළා!**")
+            await save_bot_data()
+            await event.edit("🔄 **History & Welcomed Contact list Reset කළා!**")
 
     except Exception:
         pass
@@ -238,10 +256,8 @@ async def command_handler(event):
 async def reply_handler(event):
     global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, WELCOME_MSG_ENABLED, KNOWN_CONTACTS
     try:
-        sender = await event.get_sender()
         user_id = event.sender_id
-
-        if not sender or getattr(sender, 'bot', False):
+        if not user_id:
             return
 
         if user_id in IGNORED_USERS:
@@ -258,13 +274,19 @@ async def reply_handler(event):
             await event.reply(f"🤖 {AFK_REASON}")
             return
 
-        # 2. Direct Welcome Message Check (100% Reliable Check)
+        # 2. Welcome Message Check (100% Fixed Pure User ID Matching)
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
-            is_contact = getattr(sender, 'contact', False)
-            if not is_contact:
-                await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
-                KNOWN_CONTACTS.add(user_id)
-                return
+            try:
+                sender = await event.get_sender()
+                # Sender ඔයාගේ saved contact එකක් නෙවේ නම්
+                is_saved_contact = getattr(sender, 'contact', False) if sender else False
+                if not is_saved_contact:
+                    await event.reply("💌 Hey! 💖 Thanks for your message. I'll reply soon. 😊")
+                    KNOWN_CONTACTS.add(user_id)
+                    await save_bot_data()
+                    return
+            except Exception as ex:
+                print(f"Welcome Error: {ex}")
 
         incoming_raw = event.raw_text.strip().lower()
         replied = False
@@ -292,7 +314,7 @@ async def reply_handler(event):
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
-        print(f"Reply Error: {e}")
+        print(f"Reply Handler Error: {e}")
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -307,7 +329,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message('me', "🚀 **Userbot Fixed & Ready for Welcome Messages!**")
+            await client.send_message('me', "🚀 **Userbot Fixed with Status Dashboard & Welcome Logic!**")
         except Exception:
             pass
         await client.run_until_disconnected()
