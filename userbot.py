@@ -6,12 +6,14 @@ from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
+# 1. Render Port Binding සඳහා Flask App එක
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Userbot is Live!"
 
+# 2. Telegram Credentials
 api_id = 35039780
 api_hash = '4ec122e3bde00836e5a02223c5a7714d'
 
@@ -59,13 +61,13 @@ async def command_handler(event):
         added_count = 0
         added_list = []
 
-        # 1. !nobot හෝ !block (Reply එකක් ලෙස යැවිය යුතුය)
+        # 1. !block හෝ !nobot (Reply එකක් ලෙස යැවිය යුතුය)
         if (raw_text in ["!block", "!nobot"]) and event.is_reply:
             reply_msg = await event.get_reply_message()
             user_id = reply_msg.sender_id
             IGNORED_USERS.add(user_id)
             save_data(IGNORED_FILE, list(IGNORED_USERS))
-            await event.edit("🚫 **මෙම කෙනාට Auto-Reply සදහටම නතර කළා!**")
+            await event.edit("✅ **Saved. Auto-responses turned off for this contact.**")
             return
 
         # 2. !unblock (Reply එකක් ලෙස)
@@ -75,7 +77,7 @@ async def command_handler(event):
             if user_id in IGNORED_USERS:
                 IGNORED_USERS.remove(user_id)
                 save_data(IGNORED_FILE, list(IGNORED_USERS))
-                await event.edit("✅ **මෙම කෙනාට නැවත Auto-Reply සක්‍රිය කළා!**")
+                await event.edit("✅ **Saved. Auto-responses re-enabled for this contact.**")
             else:
                 await event.edit("❌ **මෙම කෙනා Block ලැයිස්තුවේ නැත.**")
             return
