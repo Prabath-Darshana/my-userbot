@@ -66,27 +66,23 @@ AI_REPLY_ENABLED = True
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
     if not ai_client:
-        return None
+        return "AI Client not initialized."
     
-    # නිවැරදිව වැඩ කරන Google AI Model එක
-    models_to_try = ['gemini-2.0-flash']
-    
-    for model_name in models_to_try:
-        try:
-            response = ai_client.models.generate_content(
-                model=model_name,
-                contents=prompt_text,
-            )
-            if response and response.text:
-                return response.text.strip()
-        except Exception as e:
-            err_str = str(e)
-            logger.warning(f"Failed with {model_name}: {err_str}")
-            if "429" in err_str:
-                return "QUOTA_EXCEEDED"
-            continue
-            
-    return None
+    try:
+        response = ai_client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt_text,
+        )
+        if response and response.text:
+            return response.text.strip()
+    except Exception as e:
+        err_str = str(e)
+        logger.error(f"AI Generation Error Details: {err_str}")
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            return "QUOTA_EXCEEDED"
+        return f"Error: {err_str[:50]}"
+        
+    return "No response generated."
 
 # ---------------- DATA PERSISTENCE ----------------
 async def load_bot_data():
@@ -178,13 +174,11 @@ async def command_handler(event):
         if not raw_text:
             return
 
-        # Auto Turn-Off AFK when owner sends a message
         if AFK_MODE and not raw_text.startswith("!afk"):
             AFK_MODE = False
             AFK_REASON = DEFAULT_AFK_MSG
             await client.send_message(STORAGE_CHANNEL, "🟢 **AFK Mode එක Off වුණා.**")
 
-        # 1. STATUS / DASHBOARD
         if raw_text == "!status":
             tz = pytz.timezone('Asia/Colombo')
             now = datetime.now(tz).replace(tzinfo=None)
@@ -234,7 +228,6 @@ async def command_handler(event):
             await event.edit(status_msg)
             return
 
-        # 2. CHECK IGNORED USERS
         if raw_text in ["!ignored", "!blocklist"]:
             if not IGNORED_USERS:
                 await event.edit("🟢 **ඔබ විසින් Bot ව වැඩ නොකරන ලෙස Block/Disable කළ අය කිසිවෙක් නැත.**")
@@ -257,7 +250,6 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 3. CHECK BLOCKED USERS COMMAND
         if raw_text == "!blockedusers":
             if not BOT_BLOCKED_USERS:
                 await event.edit("🟢 **Bot/Userbot එක Block කළ අය කිසිවෙක් නැත.**")
@@ -268,7 +260,6 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 4. TODO TARGET COMMANDS
         if raw_text.startswith("!todo "):
             task = raw_text[6:].strip()
             if task:
@@ -296,7 +287,6 @@ async def command_handler(event):
             await event.edit("🧹 **සියලුම Study Targets Clear කළා!**")
             return
 
-        # 5. AFK COMMAND
         if raw_text.startswith("!afk"):
             arg = raw_text[4:].strip()
             if arg.lower() == "off":
@@ -309,7 +299,6 @@ async def command_handler(event):
                 await event.edit(f"🟢 **AFK Mode On!**\n\n💬 Message:\n\"{AFK_REASON}\"")
             return
 
-        # 6. SYSTEM TOGGLES
         if raw_text.startswith("!hours "):
             val = raw_text[7:].strip().lower()
             WORKING_HOURS_ONLY = (val == "on")
@@ -324,7 +313,6 @@ async def command_handler(event):
             await event.edit(f"⚙️ **Welcome Message:** `{'ON' if WELCOME_MSG_ENABLED else 'OFF'}`")
             return
 
-        # 7. CUSTOM REPLIES
         if raw_text.startswith("!add ") and "=" in raw_text:
             parts = raw_text[5:].split("=", 1)
             key, val = parts[0].strip().lower(), parts[1].strip()
@@ -351,7 +339,6 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 8. MEDIA REPLIES
         if raw_text.startswith("!addmedia "):
             key = raw_text[10:].strip().lower()
             reply_msg = await event.get_reply_message()
@@ -381,7 +368,6 @@ async def command_handler(event):
             await event.edit(msg)
             return
 
-        # 9. BLOCK & UNBLOCK
         if raw_text in ["!block", "!unblock"]:
             chat = await event.get_chat()
             if event.is_private:
@@ -395,7 +381,6 @@ async def command_handler(event):
                     await event.edit("✅ **මේ Chat එක සඳහා Bot Enable කරන ලදී.**")
             return
 
-        # 10. BROADCAST (!gcast)
         if raw_text.startswith("!gcast "):
             bc_msg = raw_text[7:].strip()
             if bc_msg:
@@ -409,7 +394,6 @@ async def command_handler(event):
                 await event.edit(f"✅ Broadcast Complete! Sent to `{sent_count}` users.")
             return
 
-        # 11. RESET HISTORY
         if raw_text == "!reset":
             REPLIED_USERS.clear()
             KNOWN_CONTACTS.clear()
@@ -438,7 +422,6 @@ async def reply_handler(event):
 
         incoming_raw = event.raw_text.strip() if event.raw_text else ""
 
-        # WELCOME MESSAGE
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
                 is_bot = getattr(sender, 'bot', False)
@@ -461,7 +444,6 @@ async def reply_handler(event):
         if not incoming_raw:
             return
 
-        # PUBLIC COMMAND 1: HELP
         if incoming_raw.lower() in ["!help", "/help", "help"]:
             help_text = (
                 "🤖 **Assistant Public Commands:**\n\n"
@@ -472,7 +454,6 @@ async def reply_handler(event):
             await safe_send_message(event.chat_id, help_text, reply_to=event)
             return
 
-        # PUBLIC COMMAND 2: A/L COUNTDOWN
         if incoming_raw.lower() == "!exam":
             tz = pytz.timezone('Asia/Colombo')
             now = datetime.now(tz).replace(tzinfo=None)
@@ -480,7 +461,6 @@ async def reply_handler(event):
             await safe_send_message(event.chat_id, f"🎯 **2028 A/L Exam එකට තව දින `{days_left}` ක් තියෙනවා!**\n\n_Good Luck with your Studies!_ 📚", reply_to=event)
             return
 
-        # PUBLIC COMMAND 3: STUDY HELPER (!ask)
         if incoming_raw.lower().startswith("!ask "):
             query = incoming_raw[5:].strip()
             if ai_client and query:
@@ -494,13 +474,14 @@ async def reply_handler(event):
                 if status_msg:
                     if ai_text == "QUOTA_EXCEEDED":
                         await status_msg.edit("⚠️ **AI API Quota Exceeded:** කරුණාකර අලුත් API Key එකක් Render එකට Update කරන්න.")
+                    elif ai_text.startswith("Error:"):
+                        await status_msg.edit(f"⚠️ **AI Error:** {ai_text}")
                     elif ai_text:
                         await status_msg.edit(f"📚 **Study Solution:**\n\n{ai_text}")
                     else:
                         await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය.")
             return
 
-        # PUBLIC COMMAND 4: YOUTUBE MP3 DOWNLOADER
         if incoming_raw.lower().startswith("!ytmp3 "):
             url = incoming_raw[7:].strip()
             if "youtube.com" in url or "youtu.be" in url:
@@ -527,23 +508,19 @@ async def reply_handler(event):
                         await status_msg.edit("❌ **Download Error:** File එක විශාල වැඩියි හෝ Link එක වැරදියි.")
             return
 
-        # CHECK CUSTOM TEXT REPLIES
         if incoming_raw.lower() in RESPONSES:
             await safe_send_message(event.chat_id, RESPONSES[incoming_raw.lower()], reply_to=event)
             return
 
-        # ANTI-SPAM LIMIT
         current_time = time.time()
         if user_id in USER_LAST_MSG_TIME and (current_time - USER_LAST_MSG_TIME[user_id] < 10):
             return
         USER_LAST_MSG_TIME[user_id] = current_time
 
-        # AFK MODE CHECK
         if AFK_MODE:
             await safe_send_message(event.chat_id, AFK_REASON, reply_to=event)
             return
 
-        # SMART AI AUTO-REPLY LOGIC
         if user_id not in REPLIED_USERS:
             await asyncio.sleep(5)
             
@@ -553,7 +530,7 @@ async def reply_handler(event):
             if AI_REPLY_ENABLED and ai_client:
                 prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
                 ai_text = await generate_ai_response(prompt)
-                if ai_text and ai_text != "QUOTA_EXCEEDED":
+                if ai_text and ai_text not in ["QUOTA_EXCEEDED"] and not ai_text.startswith("Error:"):
                     await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto Reply - Type !help for commands)_", reply_to=event)
             REPLIED_USERS.add(user_id)
 
