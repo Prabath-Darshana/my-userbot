@@ -102,7 +102,7 @@ async def command_handler(event):
                 todo_str = " └ No active targets set\n"
 
             status_msg = (
-                "👋 **Hello, Student!**\n\n"
+                "👋 **Hello Satan!**\n\n"
                 f"🎯 **A/L Exam Countdown (2028-08-10)**\n"
                 f" └ `{days_left} Days Remaining!`\n\n"
                 "⚙️ **System Settings**\n"
@@ -126,10 +126,10 @@ async def command_handler(event):
                 " ➦ `!addmedia word` - Media Auto Reply\n"
                 " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
                 " ➦ `!list` / `!listmedia` - Auto Replies ලැයිස්තුව\n"
-                " ➦ `!block` / `!unblock` - Block/Unblock Chat\n"
+                " ➦ `!block` / `!unblock` - Reply කර Block/Unblock කිරීමට\n"
                 " ➦ `!gcast <msg>` - Message Broadcast\n"
                 " ➦ `!reset` - Clear History & Contacts\n\n"
-                "> 💡 **A/L Combined Maths Userbot System**\n"
+                "> 🩸🖤 **Pray to the Satan...!**\n"
                 "> 🚀 Status: Active & Operational"
             )
             await event.edit(status_msg)
@@ -372,7 +372,7 @@ async def reply_handler(event):
                     break
 
         if not replied and user_id not in REPLIED_USERS:
-            await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම් හොඳේ! ✨")
+            await event.reply("මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨")
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
@@ -391,7 +391,7 @@ if __name__ == "__main__":
         await client.start()
         await load_bot_data()
         try:
-            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard UI Updated!**")
+            await client.send_message(STORAGE_CHANNEL, "🚀 **Dashboard Updated with New Branding!**")
         except Exception:
             pass
         await client.run_until_disconnected()
