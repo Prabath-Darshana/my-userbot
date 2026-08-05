@@ -10,8 +10,6 @@ import pytz
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.types import UserStatusOnline
 from google import genai
 import yt_dlp
 
@@ -63,7 +61,7 @@ END_HOUR = 7
 WELCOME_MSG_ENABLED = True
 AI_REPLY_ENABLED = True
 
-# ---------------- DATA PERSISTENCE ----------------
+# ---------------- DATA PERSISTENCE & STARTUP NOTIFICATION ----------------
 async def load_bot_data():
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED
     try:
@@ -113,8 +111,7 @@ async def save_bot_data():
 async def is_owner_online():
     try:
         me = await client.get_me()
-        user_full = await client(GetFullUserRequest(me.id))
-        return isinstance(user_full.users[0].status, UserStatusOnline)
+        return getattr(me.status, 'was_online', None) is None
     except Exception:
         return False
 
@@ -339,6 +336,7 @@ async def command_handler(event):
 async def reply_handler(event):
     global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, USER_LAST_MSG_TIME
     try:
+        sender = await event.get_sender()
         user_id = event.sender_id
         if not user_id or user_id in IGNORED_USERS:
             return
@@ -348,9 +346,9 @@ async def reply_handler(event):
         # WELCOME MESSAGE FOR NEW CONTACTS
         if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
             try:
-                full_user = await client(GetFullUserRequest(user_id))
-                user_obj = full_user.users[0]
-                if not user_obj.contact and not user_obj.bot:
+                is_bot = getattr(sender, 'bot', False)
+                is_contact = getattr(sender, 'contact', False)
+                if not is_contact and not is_bot:
                     welcome_text = (
                         "💌 **Hey! Thanks for your message.**\n"
                         "මම දැනට පොඩි වැඩක ඉන්නේ, ඉක්මනින්ම reply කරන්නම්! 😊\n\n"
@@ -398,11 +396,12 @@ async def reply_handler(event):
                         f"Solve or explain this question clearly step-by-step in Sinhala/Singlish: '{query}'"
                     )
                     response = ai_client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-2.0-flash',
                         contents=prompt,
                     )
                     await status_msg.edit(f"📚 **Study Solution:**\n\n{response.text}")
-                except Exception:
+                except Exception as ex:
+                    logger.error(f"AI Ask Error: {ex}")
                     await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය. කරුණාකර ප්‍රශ්නය පැහැදිලිව යොමු කරන්න.")
             return
 
@@ -456,10 +455,10 @@ async def reply_handler(event):
             if AI_REPLY_ENABLED and ai_client:
                 try:
                     prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
-                    response = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                    response = ai_client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
                     await event.reply(f"{response.text.strip()}\n\n_(🤖 Auto Reply - Type !help for commands)_")
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.error(f"AI Reply Error: {ex}")
             REPLIED_USERS.add(user_id)
 
     except Exception as e:
@@ -468,7 +467,6 @@ async def reply_handler(event):
 # ---------------- FLASK & BOT ASYNC START ----------------
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
-    # Werkzeug logs අඩු කර Render logs පිරිසිදුව තබා ගැනීම
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     app.run(host="0.0.0.0", port=port, use_reloader=False)
@@ -477,16 +475,21 @@ async def main():
     logger.info("Starting Telethon Client...")
     await client.start()
     logger.info("Userbot Logged In Successfully!")
+    
+    # Data Load සහ Startup Update Notification Channel එකට යැවීම
     await load_bot_data()
+    try:
+        await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Successfully Deployed & Updated!**\n\n_System is active and ready to operate._ 🖤")
+    except Exception as e:
+        logger.error(f"Startup Notification Error: {e}")
+
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
-    # Flask app එක daemon thread එකකින් background එකේ Run කිරීම
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
     
-    # Python 3.10+ Event Loop Issue Fix - asyncio.run() භාවිතයෙන් Telethon client එක run කිරීම
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
