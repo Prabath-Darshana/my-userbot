@@ -61,7 +61,7 @@ WORKING_HOURS_ONLY = False
 START_HOUR = 1
 END_HOUR = 7
 WELCOME_MSG_ENABLED = True
-AI_REPLY_ENABLED = False  # මෙතැන False කර ඇත (Quota Error එක වළක්වා ගැනීමට)
+AI_REPLY_ENABLED = False  # Quota Error නිසා AI Auto Reply Off කර ඇත
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
@@ -101,7 +101,6 @@ async def load_bot_data():
                 START_HOUR = data.get("start_hour", 1)
                 END_HOUR = data.get("end_hour", 7)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
-                # AI_REPLY_ENABLED ඉතිරි කර ඇත, අවශ්‍ය නම් persistent data වලට අනුව වෙනස් වේ
                 TODO_LIST = data.get("todo_list", [])
                 logger.info("Bot data loaded successfully from Storage Channel.")
                 break
@@ -483,7 +482,7 @@ async def reply_handler(event):
             return
 
         if incoming_raw.lower().startswith("!ytmp3 "):
-            url = incoming_raw[7:].strip()
+            url = incoming_raw[7:].strip().strip('<>')  # < > ලකුණු Auto-Clean කරයි
             if "youtube.com" in url or "youtu.be" in url:
                 status_msg = await safe_send_message(event.chat_id, "📥 **YouTube MP3 Download වෙමින් පවතී...**", reply_to=event)
                 try:
@@ -503,7 +502,8 @@ async def reply_handler(event):
                         await status_msg.delete()
                     if os.path.exists(filename):
                         os.remove(filename)
-                except Exception:
+                except Exception as e:
+                    logger.error(f"YT Download Error: {e}")
                     if status_msg:
                         await status_msg.edit("❌ **Download Error:** File එක විශාල වැඩියි හෝ Link එක වැරදියි.")
             return
