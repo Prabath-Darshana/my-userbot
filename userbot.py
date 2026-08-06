@@ -526,14 +526,19 @@ async def command_handler(event):
             await safe_edit(event, f"✅ Auto Reply එකතු කළා: `{key}` ➔ `{val}`")
             return
 
-        if raw_text == "!addbulk":
+        if raw_text.startswith("!addbulk"):
             reply_block = ""
-            if event.is_reply:
+            lines = event.raw_text.splitlines()
+            if len(lines) > 1:
+                # Same-message bulk block after the command on following lines
+                reply_block = "\n".join(lines[1:]).strip()
+            elif event.is_reply:
                 replied_msg = await event.get_reply_message()
                 if replied_msg and replied_msg.raw_text:
                     reply_block = replied_msg.raw_text.strip()
+
             if not reply_block:
-                await safe_edit(event, "❌ `!addbulk` භාවිතා කිරීමට පළමු line එකක් සමඟ reply message එකක් දෙන්න.\nඋදා: `gn=Good Night..! 🌙`")
+                await safe_edit(event, "❌ `!addbulk` use කරන්න, command එකට පසුව bulk lines දාන්න හෝ message එකක් reply කරන්න.\nඋදා: `gn=Good Night..! 🌙`")
                 return
 
             parsed = parse_bulk_replies(reply_block)
