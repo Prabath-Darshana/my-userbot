@@ -11,7 +11,15 @@ import pytz
 import aiohttp
 from flask import Flask
 from telethon import TelegramClient, events
-from bot_utils import extract_media_message, resolve_send_target
+from bot_utils import (
+    can_send_ai_reply,
+    extract_media_message,
+    extract_youtube_url,
+    normalize_bot_state,
+    parse_size_limit_mb,
+    resolve_send_target,
+    resolve_telegram_config,
+)
 from telethon.sessions import StringSession
 from telethon.errors import (
     UserIsBlockedError,
@@ -50,9 +58,8 @@ def home():
 
 # ==================== 🔹 CONFIGURATION (Settings & API Keys) ====================
 
-API_ID = 35039780              # Telegram App ID (my.telegram.org වලින්)
-API_HASH = '4ec122e3bde00836e5a02223c5a7714d'   # Telegram App Hash
-STORAGE_CHANNEL = -1004489211765  # ඔයාගේ private "My Bot Storage" channel ID —
+API_ID, API_HASH = resolve_telegram_config(35039780, '4ec122e3bde00836e5a02223c5a7714d')
+STORAGE_CHANNEL = int(os.environ.get("STORAGE_CHANNEL", "-1004489211765"))  # ඔයාගේ private "My Bot Storage" channel ID —
                                    # settings/backup ඔක්කොම save වෙන්නේ මෙතනට
 AL_EXAM_DATE = datetime(2028, 8, 10)  # Countdown එකට use කරන exam date එක
 
@@ -84,7 +91,7 @@ if GEMINI_API_KEY:
 #   COBALT_API_KEY      = (only if you enabled auth on your instance)
 COBALT_INSTANCE_URL = os.environ.get("COBALT_INSTANCE_URL", "https://api.cobalt.tools/")
 COBALT_API_KEY = os.environ.get("COBALT_API_KEY", "")
-MAX_DOWNLOAD_MB = int(os.environ.get("MAX_DOWNLOAD_MB", "100"))
+MAX_DOWNLOAD_MB = parse_size_limit_mb(os.environ.get("MAX_DOWNLOAD_MB", "100"))
 
 # How long (hours) before the AI auto-reply is allowed to fire again for the
 # same user. Previously this was a permanent one-time-ever lock per user.
@@ -92,6 +99,13 @@ AUTO_REPLY_COOLDOWN_SECONDS = int(os.environ.get("AUTO_REPLY_COOLDOWN_HOURS", "6
 
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), API_ID, API_HASH, sequential_updates=True)
+
+
+async def ensure_client_ready():
+    """Ensure the Telegram client is connected before using it."""
+    if client.is_connected():
+        return
+    await client.start()
 
 DEFAULT_AFK_MSG = "මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨"
 
@@ -163,32 +177,54 @@ async def generate_ai_response(prompt_text):
 # settings මැකෙනවා. ඒක වළක්වන්න, settings ටික JSON විදිහට STORAGE_CHANNEL එකට
 # message එකක් විදිහට save කරලා, start වෙනකොට ආයෙත් load කරගන්නවා.
 async def load_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS, AFK_MODE, AFK_REASON
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS, AFK_MODE, AFK_REASON, REPLIED_USERS
     try:
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             if msg.text and "[USERBOT_DATA_SAVE]" in msg.text:
                 json_str = msg.text.split("[USERBOT_DATA_SAVE]")[1].strip()
                 data = json.loads(json_str)
-                RESPONSES = data.get("responses", {})
-                MEDIA_RESPONSES = data.get("media_responses", {})
-                IGNORED_USERS = set(data.get("ignored", []))
-                KNOWN_CONTACTS = set(data.get("known_contacts", []))
-                BOT_BLOCKED_USERS = set(data.get("bot_blocked_users", []))
-                WORKING_HOURS_ONLY = data.get("working_hours", False)
-                START_HOUR = data.get("start_hour", 1)
-                END_HOUR = data.get("end_hour", 7)
-                WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
-                AI_REPLY_ENABLED = data.get("ai_reply", True)
-                AFK_MODE = data.get("afk_mode", False)
-                AFK_REASON = data.get("afk_reason", DEFAULT_AFK_MSG)
-                TODO_LIST = data.get("todo_list", [])
+                defaults = {
+                    "responses": {},
+                    "media_responses": {},
+                    "ignored": [],
+                    "known_contacts": [],
+                    "bot_blocked_users": [],
+                    "working_hours": False,
+                    "start_hour": 1,
+                    "end_hour": 7,
+                    "welcome_msg": True,
+                    "ai_reply": True,
+                    "afk_mode": False,
+                    "afk_reason": DEFAULT_AFK_MSG,
+                    "todo_list": [],
+                    "replied_users": {},
+                }
+                state = normalize_bot_state(data, defaults)
+                RESPONSES = state["responses"]
+                MEDIA_RESPONSES = state["media_responses"]
+                IGNORED_USERS = set(state["ignored"])
+                KNOWN_CONTACTS = set(state["known_contacts"])
+                BOT_BLOCKED_USERS = set(state["bot_blocked_users"])
+                WORKING_HOURS_ONLY = state["working_hours"]
+                START_HOUR = state["start_hour"]
+                END_HOUR = state["end_hour"]
+                WELCOME_MSG_ENABLED = state["welcome_msg"]
+                AI_REPLY_ENABLED = state["ai_reply"]
+                AFK_MODE = state["afk_mode"]
+                AFK_REASON = state["afk_reason"]
+                TODO_LIST = state["todo_list"]
+                raw_replied_users = state.get("replied_users", {})
+                if isinstance(raw_replied_users, dict):
+                    REPLIED_USERS = {int(k): float(v) for k, v in raw_replied_users.items() if str(k).isdigit()}
+                else:
+                    REPLIED_USERS = {}
                 logger.info("Bot data loaded successfully from Storage Channel.")
                 break
     except Exception as e:
         logger.error(f"Data Load Error: {e}")
 
 async def save_bot_data():
-    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS, AFK_MODE, AFK_REASON
+    global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS, AFK_MODE, AFK_REASON, REPLIED_USERS
     try:
         data = {
             "responses": RESPONSES,
@@ -203,7 +239,8 @@ async def save_bot_data():
             "ai_reply": AI_REPLY_ENABLED,
             "afk_mode": AFK_MODE,
             "afk_reason": AFK_REASON,
-            "todo_list": TODO_LIST
+            "todo_list": TODO_LIST,
+            "replied_users": {str(k): v for k, v in REPLIED_USERS.items()}
         }
         text_to_save = f"[USERBOT_DATA_SAVE]\n{json.dumps(data, ensure_ascii=False)}"
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
@@ -678,10 +715,8 @@ async def reply_handler(event):
             return
 
         if incoming_raw.lower().startswith("!ytmp3 "):
-            match = re.search(r'(https?://[^\s>]+)', incoming_raw)
-            if match:
-                url = match.group(1).rstrip('>')
-            else:
+            url = extract_youtube_url(incoming_raw)
+            if not url:
                 await safe_send_message(event.chat_id, "❌ **වැරදි Link එකකි!** කරුණාකර නිවැරදි YouTube URL එකක් ලබාදෙන්න.", reply_to=event)
                 return
 
@@ -800,8 +835,7 @@ async def reply_handler(event):
                 await safe_send_message(event.chat_id, AFK_REASON, reply_to=event)
             return
 
-        last_replied = REPLIED_USERS.get(user_id, 0)
-        if current_time - last_replied > AUTO_REPLY_COOLDOWN_SECONDS:
+        if can_send_ai_reply(user_id, current_time, REPLIED_USERS, AUTO_REPLY_COOLDOWN_SECONDS):
             await asyncio.sleep(5)
 
             if await is_owner_online():
@@ -816,6 +850,7 @@ async def reply_handler(event):
                 if ai_text and ai_text not in ["QUOTA_EXCEEDED", "MODEL_NOT_FOUND"] and not ai_text.startswith("Error:"):
                     await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto Reply - Type !help for commands)_", reply_to=event)
             REPLIED_USERS[user_id] = current_time
+            await save_bot_data()
 
     except Exception as e:
         logger.error(f"Public Handler Error: {e}")
@@ -832,10 +867,18 @@ def run_flask():
 
 async def main():
     logger.info("Starting Telethon Client...")
-    await client.start()
-    logger.info("Userbot Logged In Successfully!")
+    try:
+        await ensure_client_ready()
+        logger.info("Userbot Logged In Successfully!")
+    except Exception as e:
+        logger.error(f"Telegram startup/login failed: {e}")
+        return
 
-    await load_bot_data()
+    try:
+        await load_bot_data()
+    except Exception as e:
+        logger.error(f"Persistence load failed: {e}")
+
     try:
         await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Successfully Deployed & Updated!**\n\n_System is active and ready to operate._ 🖤")
     except Exception as e:
