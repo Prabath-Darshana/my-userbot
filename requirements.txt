@@ -4,3 +4,4 @@ pytz
 google-genai
 yt-dlp
 requests
+aiohttp
