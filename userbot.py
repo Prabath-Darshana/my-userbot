@@ -16,6 +16,7 @@ from bot_utils import (
     extract_media_message,
     extract_youtube_url,
     normalize_bot_state,
+    parse_bulk_replies,
     parse_size_limit_mb,
     resolve_send_target,
     resolve_telegram_config,
@@ -523,6 +524,27 @@ async def command_handler(event):
             RESPONSES[key] = val
             await save_bot_data()
             await safe_edit(event, f"✅ Auto Reply එකතු කළා: `{key}` ➔ `{val}`")
+            return
+
+        if raw_text == "!addbulk":
+            reply_block = ""
+            if event.is_reply:
+                replied_msg = await event.get_reply_message()
+                if replied_msg and replied_msg.raw_text:
+                    reply_block = replied_msg.raw_text.strip()
+            if not reply_block:
+                await safe_edit(event, "❌ `!addbulk` භාවිතා කිරීමට පළමු line එකක් සමඟ reply message එකක් දෙන්න.\nඋදා: `gn=Good Night..! 🌙`")
+                return
+
+            parsed = parse_bulk_replies(reply_block)
+            if not parsed:
+                await safe_edit(event, "❌ කිසිම valid reply entry එකක් detect නොවුණා.")
+                return
+
+            for key, val in parsed.items():
+                RESPONSES[key] = val
+            await save_bot_data()
+            await safe_edit(event, f"✅ `{len(parsed)}` replies bulk add කරා.")
             return
 
         if raw_text.startswith("!del "):

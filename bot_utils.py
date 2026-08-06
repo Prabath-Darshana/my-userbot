@@ -105,3 +105,21 @@ def extract_youtube_url(text):
     if not match:
         return None
     return match.group(0).rstrip('>')
+
+
+def parse_bulk_replies(text):
+    """Parse a multi-line bulk reply block into a dict of key -> reply pairs."""
+    if not text:
+        return {}
+
+    replies = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or '=' not in stripped:
+            continue
+        key, value = stripped.split('=', 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key and value:
+            replies[key] = value
+    return replies

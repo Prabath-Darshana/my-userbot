@@ -5,6 +5,7 @@ from bot_utils import (
     extract_media_message,
     extract_youtube_url,
     normalize_bot_state,
+    parse_bulk_replies,
     parse_size_limit_mb,
     resolve_send_target,
     resolve_telegram_config,
@@ -58,6 +59,13 @@ class ResolveSendTargetTests(unittest.TestCase):
     def test_parse_size_limit_mb_uses_default_for_invalid_values(self):
         self.assertEqual(parse_size_limit_mb("0"), 100)
         self.assertEqual(parse_size_limit_mb("50"), 50)
+
+    def test_parse_bulk_replies_handles_multiple_entries(self):
+        text = "gn=Good Night..! 🌙\ngm=Good Morning..! ☀️\ntc=Take Care!"
+        self.assertEqual(
+            parse_bulk_replies(text),
+            {"gn": "Good Night..! 🌙", "gm": "Good Morning..! ☀️", "tc": "Take Care!"},
+        )
 
     def test_extract_youtube_url_parses_common_links(self):
         self.assertEqual(extract_youtube_url("!ytmp3 https://www.youtube.com/watch?v=abc"), "https://www.youtube.com/watch?v=abc")
