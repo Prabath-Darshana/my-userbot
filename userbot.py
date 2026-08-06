@@ -21,6 +21,22 @@ from telethon.errors import (
 )
 from google import genai
 
+# ══════════════════════════════════════════════════════════════════════════
+# 📖 FILE MAP — මේ file එකේ මොනවද කොහෙද කියලා ඉක්මනින් හොයාගන්න
+#    (Ctrl+F කරලා පහළ තියෙන # 🔹 label එක search කරන්න)
+# ══════════════════════════════════════════════════════════════════════════
+#  🔹 CONFIGURATION              → API keys, model names, env vars ඔක්කොම
+#  🔹 WORKING HOURS HELPER       → "!hours" feature එක actually check කරන logic
+#  🔹 AI GENERATION HELPER       → Gemini API එකට call කරන function එක
+#  🔹 DATA PERSISTENCE           → Storage Channel එකට save/load කරන logic
+#  🔹 SAFE-SEND / SAFE-EDIT      → Telegram error handling (blocked/flood-wait)
+#  🔹 OWNER COMMANDS             → ඔයා (owner) type කරන !commands ඔක්කොම
+#      (!status, !afk, !hours, !add, !addmedia, !gcast, !reset ...)
+#  🔹 PUBLIC HANDLER             → strangers/contacts bot එකට message කළාම
+#      (welcome msg, !ask, !ytmp3, !exam, auto-reply, media-reply ...)
+#  🔹 FLASK & STARTUP            → Render health-check server + bot start කිරීම
+# ══════════════════════════════════════════════════════════════════════════
+
 # Logging Configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Userbot")
@@ -31,13 +47,15 @@ app = Flask(__name__)
 def home():
     return "Userbot Utility Active & Alive!"
 
-# ---------------- CONFIGURATION ----------------
-API_ID = 35039780
-API_HASH = '4ec122e3bde00836e5a02223c5a7714d'
-STORAGE_CHANNEL = -1004489211765
-AL_EXAM_DATE = datetime(2028, 8, 10)
+# ==================== 🔹 CONFIGURATION (Settings & API Keys) ====================
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+API_ID = 35039780              # Telegram App ID (my.telegram.org වලින්)
+API_HASH = '4ec122e3bde00836e5a02223c5a7714d'   # Telegram App Hash
+STORAGE_CHANNEL = -1004489211765  # ඔයාගේ private "My Bot Storage" channel ID —
+                                   # settings/backup ඔක්කොම save වෙන්නේ මෙතනට
+AL_EXAM_DATE = datetime(2028, 8, 10)  # Countdown එකට use කරන exam date එක
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")  # Render env var එකෙන් එනවා
 ai_client = None
 
 # ---- Gemini model fallback chain ----
@@ -76,25 +94,27 @@ client = TelegramClient(StringSession(session_str), API_ID, API_HASH, sequential
 
 DEFAULT_AFK_MSG = "මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨"
 
-# System Variables
-RESPONSES = {}
-MEDIA_RESPONSES = {}
-IGNORED_USERS = set()
-REPLIED_USERS = {}  # user_id -> last auto-reply unix timestamp (was a permanent set before)
-KNOWN_CONTACTS = set()
-BOT_BLOCKED_USERS = set()
-TODO_LIST = []
-USER_LAST_MSG_TIME = {}
+# ---- System Variables (bot එක run වෙද්දි memory එකේ තියෙන "state" එක) ----
+# 👉 මේවා restart එකකදී ගිලිහෙන්නේ නෑ — DATA PERSISTENCE section එකෙන්
+#    STORAGE_CHANNEL එකට save/load වෙනවා (ටිකක් පහළ බලන්න).
+RESPONSES = {}          # !add එකෙන් හදන text auto-replies. e.g. {"hi": "hello!"}
+MEDIA_RESPONSES = {}    # !addmedia එකෙන් හදන media auto-replies (key -> storage msg id)
+IGNORED_USERS = set()   # !block කරපු chat/user id ලා — මේ අයට bot එක reply කරන්නේ නෑ
+REPLIED_USERS = {}      # user_id -> අන්තිමට AI auto-reply කළ වෙලාව (cooldown track කරන්න)
+KNOWN_CONTACTS = set()  # "!ask access" ලැබුණු අය (real contacts + welcome msg ලැබුණු අය)
+BOT_BLOCKED_USERS = set()  # ඔයාගේ bot එක block කරපු Telegram users ලා
+TODO_LIST = []          # !todo/!done වලින් manage කරන study targets list එක
+USER_LAST_MSG_TIME = {} # spam වළක්වන්න, user කෙනෙක් message කරපු අන්තිම වෙලාව
 
-AFK_MODE = False
-AFK_REASON = DEFAULT_AFK_MSG
-WORKING_HOURS_ONLY = False
-START_HOUR = 1
-END_HOUR = 7
-WELCOME_MSG_ENABLED = True
-AI_REPLY_ENABLED = True  # AI Auto Reply Enabled
+AFK_MODE = False                # !afk on/off තියෙනවද
+AFK_REASON = DEFAULT_AFK_MSG    # AFK message එකේ text එක
+WORKING_HOURS_ONLY = False      # !hours on/off — යම් වෙලාවකදී විතරක් auto-reply active
+START_HOUR = 1                  # Working hours range එකේ පටන් ගන්න පැය (Asia/Colombo)
+END_HOUR = 7                    # Working hours range එකේ ඉවර වෙන පැය
+WELCOME_MSG_ENABLED = True      # අලුත් කෙනෙක්ට එකපාරක් welcome msg යවනවද
+AI_REPLY_ENABLED = True         # AI Auto Reply (passive) ON/OFF
 
-# ---------------- WORKING HOURS HELPER ----------------
+# ==================== 🔹 WORKING HOURS HELPER (!hours feature එකේ logic) ====================
 def is_within_working_hours():
     """Returns True if passive auto-replies (AFK/AI) should fire right now.
     Supports overnight ranges too, e.g. START_HOUR=22, END_HOUR=6."""
@@ -106,7 +126,7 @@ def is_within_working_hours():
         return START_HOUR <= hour < END_HOUR
     return hour >= START_HOUR or hour < END_HOUR
 
-# ---------------- HELPER FOR AI GENERATION ----------------
+# ==================== 🔹 AI GENERATION HELPER (Gemini API call එක) ====================
 async def generate_ai_response(prompt_text):
     if not ai_client:
         return "AI Client not initialized. (GEMINI_API_KEY missing)"
@@ -137,7 +157,10 @@ async def generate_ai_response(prompt_text):
     logger.error(f"All Gemini model candidates failed. Last error: {last_error}")
     return "MODEL_NOT_FOUND"
 
-# ---------------- DATA PERSISTENCE ----------------
+# ==================== 🔹 DATA PERSISTENCE (Storage Channel එකට Save/Load) ====================
+# bot එක Render එකේ restart වුණාම (redeploy/crash/sleep) memory එකේ තිබුණු ඔක්කොම
+# settings මැකෙනවා. ඒක වළක්වන්න, settings ටික JSON විදිහට STORAGE_CHANNEL එකට
+# message එකක් විදිහට save කරලා, start වෙනකොට ආයෙත් load කරගන්නවා.
 async def load_bot_data():
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS, AFK_MODE, AFK_REASON
     try:
@@ -252,7 +275,10 @@ async def safe_send_message(entity, text, reply_to=None):
             return None
     return None
 
-# ---------------- OWNER COMMANDS (OUTGOING) ----------------
+# ==================== 🔹 OWNER COMMANDS (ඔයා type කරන !commands) ====================
+# @client.on(events.NewMessage(outgoing=True)) කියන්නේ "ඔයා (account owner) විසින්
+# යවන message" කියන එකයි. ඒ නිසා මේ function එක trigger වෙන්නේ ඔයා යවන
+# !status, !afk, !add වගේ commands වලට විතරයි — වෙන කාටවත් නෙවෙයි.
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS
@@ -284,15 +310,15 @@ async def command_handler(event):
                 "👋 **Hello, Satan!**\n\n"
                 f"🎯 **A/L Exam Countdown (2028-08-10)**\n"
                 f" └ `{days_left} Days Remaining!`\n\n"
-                "⚙️ **System Settings**\n"
-                f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
-                f" ├ Working Hours ➔ {'🟢 ON (' + str(START_HOUR) + ':00-' + str(END_HOUR) + ':00)' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
-                f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
-                f" ├ AI Auto Reply ➔ {'🟢 ON' if AI_REPLY_ENABLED else '🔴 OFF'}\n"
-                f" ├ Custom Text Replies ➔ `{len(RESPONSES)} Units`\n"
-                f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)} Units`\n"
-                f" ├ Ignored / Bot Disabled Users ➔ `{len(IGNORED_USERS)} Users`\n"
-                f" └ Users Who Blocked Bot ➔ `{len(BOT_BLOCKED_USERS)} Users`\n\n"
+                "⚙️ **System Settings** _(මොකද කියලා පහළ බලන්න)_\n"
+                f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'} _(sent message වලට auto AFK reply)_\n"
+                f" ├ Working Hours ➔ {'🟢 ON (' + str(START_HOUR) + ':00-' + str(END_HOUR) + ':00)' if WORKING_HOURS_ONLY else '🔴 OFF'} _(auto-reply active වෙන පැය)_\n"
+                f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'} _(අලුත් අයට එකපාරක් යවන msg)_\n"
+                f" ├ AI Auto Reply ➔ {'🟢 ON' if AI_REPLY_ENABLED else '🔴 OFF'} _(AFK නැති වෙලාවක auto AI reply)_\n"
+                f" ├ Custom Text Replies ➔ `{len(RESPONSES)} Units` _(!add එකෙන් හදපු ඒවා)_\n"
+                f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)} Units` _(!addmedia එකෙන් හදපු ඒවා)_\n"
+                f" ├ Ignored / Bot Disabled Users ➔ `{len(IGNORED_USERS)} Users` _(ඔයා !block කරපු අය)_\n"
+                f" └ Users Who Blocked Bot ➔ `{len(BOT_BLOCKED_USERS)} Users` _(ඔයාව Telegram එකේම block කරපු අය)_\n\n"
                 f"📌 **Daily Study Targets**\n{todo_str}\n"
                 "🤖 **Bot Commands** 👇\n\n"
                 " ➦ `!status` - Dashboard & Countdown\n"
@@ -541,7 +567,10 @@ async def command_handler(event):
     except Exception as e:
         logger.error(f"Owner Handler Error: {e}")
 
-# ---------------- PUBLIC & INCOMING HANDLER ----------------
+# ==================== 🔹 PUBLIC HANDLER (අනිත් අය message කළාම) ====================
+# @client.on(events.NewMessage(incoming=True, ...)) කියන්නේ "අනිත් අය ඔයාට යවන
+# message" කියන එකයි. Welcome message, !ask, !ytmp3, !exam, auto-reply — මේ
+# ඔක්කොම logic එක මේ function එක ඇතුළේ.
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
     global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, USER_LAST_MSG_TIME
@@ -783,7 +812,10 @@ async def reply_handler(event):
     except Exception as e:
         logger.error(f"Public Handler Error: {e}")
 
-# ---------------- FLASK & BOT ASYNC START ----------------
+# ==================== 🔹 FLASK & STARTUP (Render health-check + Bot Start) ====================
+# Render එකට "මේ service එක alive ද?" කියලා check කරන්න Flask web server
+# එකක් ඕන (එහෙම නැත්නම් Render එක bot එක restart කරනවා). ඒක background
+# thread එකක run කරලා, main thread එකේ Telegram bot එක run කරනවා.
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     log = logging.getLogger('werkzeug')
