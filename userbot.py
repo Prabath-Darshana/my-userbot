@@ -529,10 +529,16 @@ async def command_handler(event):
         if raw_text.startswith("!addbulk"):
             reply_block = ""
             lines = event.raw_text.splitlines()
-            if len(lines) > 1:
-                # Same-message bulk block after the command on following lines
-                reply_block = "\n".join(lines[1:]).strip()
-            elif event.is_reply:
+            if lines:
+                first_line_rest = lines[0][len("!addbulk"):].strip()
+                if len(lines) > 1:
+                    extra_lines = [first_line_rest] if first_line_rest else []
+                    extra_lines.extend(line for line in lines[1:] if line is not None)
+                    reply_block = "\n".join(extra_lines).strip()
+                else:
+                    reply_block = first_line_rest
+
+            if not reply_block and event.is_reply:
                 replied_msg = await event.get_reply_message()
                 if replied_msg and replied_msg.raw_text:
                     reply_block = replied_msg.raw_text.strip()
