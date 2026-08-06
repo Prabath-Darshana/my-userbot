@@ -1,9 +1,20 @@
 import unittest
 
-from bot_utils import resolve_send_target
+from bot_utils import extract_media_message, resolve_send_target
 
 
 class ResolveSendTargetTests(unittest.TestCase):
+    def test_extract_media_message_handles_single_result(self):
+        message = object()
+        self.assertIs(extract_media_message(message), message)
+
+    def test_extract_media_message_handles_list_result(self):
+        message = object()
+        self.assertIs(extract_media_message([message]), message)
+
+    def test_extract_media_message_handles_empty_list(self):
+        self.assertIsNone(extract_media_message([]))
+
     def test_prefers_reply_method_when_available(self):
         class ReplyTarget:
             def __init__(self):

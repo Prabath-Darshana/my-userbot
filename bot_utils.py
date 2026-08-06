@@ -17,3 +17,18 @@ def resolve_send_target(entity, reply_to=None):
         return "chat", chat_id
 
     return "entity", entity
+
+
+def extract_media_message(message_result):
+    """Normalize Telethon message fetch results so media replies work for both
+    single-message and list-based responses.
+    """
+    if message_result is None:
+        return None
+
+    if isinstance(message_result, list):
+        if not message_result:
+            return None
+        message_result = message_result[0]
+
+    return message_result

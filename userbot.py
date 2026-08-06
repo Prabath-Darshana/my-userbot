@@ -11,7 +11,7 @@ import pytz
 import aiohttp
 from flask import Flask
 from telethon import TelegramClient, events
-from bot_utils import resolve_send_target
+from bot_utils import extract_media_message, resolve_send_target
 from telethon.sessions import StringSession
 from telethon.errors import (
     UserIsBlockedError,
@@ -781,7 +781,8 @@ async def reply_handler(event):
             stored_id = MEDIA_RESPONSES[incoming_raw.lower()]
             try:
                 stored_msg = await client.get_messages(STORAGE_CHANNEL, ids=stored_id)
-                if stored_msg and stored_msg.media:
+                stored_msg = extract_media_message(stored_msg)
+                if stored_msg and getattr(stored_msg, "media", None):
                     await client.send_file(event.chat_id, stored_msg.media, reply_to=event.id)
                 else:
                     logger.warning(f"Media response missing in storage channel for id={stored_id}")
