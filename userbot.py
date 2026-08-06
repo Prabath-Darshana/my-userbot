@@ -666,7 +666,17 @@ async def reply_handler(event):
     try:
         sender = await event.get_sender()
         user_id = event.sender_id
-        if not user_id or user_id in IGNORED_USERS:
+        chat_id = event.chat_id
+        if not user_id:
+            return
+
+        if user_id in IGNORED_USERS or chat_id in IGNORED_USERS:
+            await safe_send_message(
+                event.chat_id,
+                "🚫 **මෙම chat එක සඳහා bot disable කරලා තියෙනවා.**\n" \
+                "ownerට message එකක් යවලා unblock කරන්න.",
+                reply_to=event
+            )
             return
 
         user_str = f"@{sender.username}" if sender and getattr(sender, 'username', None) else f"[{getattr(sender, 'first_name', 'User')}](tg://user?id={user_id})"
