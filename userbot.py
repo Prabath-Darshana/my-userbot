@@ -189,6 +189,14 @@ async def save_bot_data():
     except Exception as e:
         logger.error(f"Data Save Error: {e}")
 
+# Helper: Decide if a user is allowed to use !ask (restricted feature).
+# "Known" means either a real Telegram contact (owner already knows them), or
+# someone who has already received the one-time welcome message before —
+# i.e. not their very first-ever message to the bot.
+def is_known_user(user_id, sender):
+    is_contact = getattr(sender, 'contact', False)
+    return bool(is_contact) or user_id in KNOWN_CONTACTS
+
 # Helper: Check if account owner is online
 async def is_owner_online():
     try:
@@ -550,22 +558,28 @@ async def reply_handler(event):
 
         incoming_raw = event.raw_text.strip() if event.raw_text else ""
 
-        if WELCOME_MSG_ENABLED and user_id not in KNOWN_CONTACTS:
+        if user_id not in KNOWN_CONTACTS:
             try:
                 is_bot = getattr(sender, 'bot', False)
                 is_contact = getattr(sender, 'contact', False)
-                if not is_contact and not is_bot:
-                    welcome_text = (
-                        "💌 **Hey! Thanks for your message.**\n"
-                        "මම දැනට පොඩි වැඩක ඉන්නේ, ඉක්මනින්ම reply කරන්නම්! 😊\n\n"
-                        "💡 **මෙතෙක් මගෙන් ලබාගත හැකි පහසුකම්:**\n"
-                        " ➦ `!ask <ප්‍රශ්නය>` - A/L පාඩම් වල ඕනෑම ප්‍රශ්නයක් නිරාකරණය කරගන්න\n"
-                        " ➦ `!ytmp3 <Link>` - YouTube සින්දු MP3 විදිහට Download කරගන්න\n"
-                        " ➦ `!help` - සියලුම Commands බලාගන්න"
-                    )
-                    await safe_send_message(event.chat_id, welcome_text, reply_to=event)
-                    KNOWN_CONTACTS.add(user_id)
-                    await save_bot_data()
+                if not is_bot:
+                    if is_contact:
+                        # Already a real Telegram contact — grant "known" status
+                        # immediately, no need to send a welcome message.
+                        KNOWN_CONTACTS.add(user_id)
+                        await save_bot_data()
+                    elif WELCOME_MSG_ENABLED:
+                        welcome_text = (
+                            "💌 **Hey! Thanks for your message.**\n"
+                            "මම දැනට පොඩි වැඩක ඉන්නේ, ඉක්මනින්ම reply කරන්නම්! 😊\n\n"
+                            "💡 **මෙතෙක් මගෙන් ලබාගත හැකි පහසුකම්:**\n"
+                            " ➦ `!ask <ප්‍රශ්නය>` - A/L පාඩම් වල ඕනෑම ප්‍රශ්නයක් නිරාකරණය කරගන්න (ඊළඟ message එකේ ඉඳන්)\n"
+                            " ➦ `!ytmp3 <Link>` - YouTube සින්දු MP3 විදිහට Download කරගන්න\n"
+                            " ➦ `!help` - සියලුම Commands බලාගන්න"
+                        )
+                        await safe_send_message(event.chat_id, welcome_text, reply_to=event)
+                        KNOWN_CONTACTS.add(user_id)
+                        await save_bot_data()
             except Exception as ex:
                 logger.error(f"Welcome Fetch Error: {ex}")
 
@@ -595,6 +609,14 @@ async def reply_handler(event):
             return
 
         if incoming_raw.lower().startswith("!ask "):
+            if not is_known_user(user_id, sender):
+                await safe_send_message(
+                    event.chat_id,
+                    "🔒 **මේ command එක දැනට ඔයාට use කරන්න බැහැ.**\n"
+                    "ටිකක් ඉඳලා ආයෙත් message එකක් යවන්න, welcome message එකෙන් පස්සේ `!ask` access වෙනවා.",
+                    reply_to=event
+                )
+                return
             query = incoming_raw[5:].strip()
             if ai_client and query:
                 status_msg = await safe_send_message(event.chat_id, "🧠 **ප්‍රශ්නය විශ්ලේෂණය කරමින් පවතී...**", reply_to=event)
