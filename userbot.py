@@ -46,7 +46,7 @@ from google import genai
 #  🔹 FLASK & STARTUP            → Render health-check server + bot start කිරීම
 # ══════════════════════════════════════════════════════════════════════════
 
-# Logging Configuration
+# Logging Configuration — වාර්තා සහ දෝෂ ලොග්ස් ඉතා වැදගත්.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Userbot")
 
@@ -54,9 +54,10 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Userbot Utility Active & Alive!"
+    return "Userbot service එක වැඩ කරමින් පවතී. 😊"
 
-# ==================== 🔹 CONFIGURATION (Settings & API Keys) ====================
+# ==================== 🔹 CONFIGURATION (සැකසුම් සහ API Keys) ====================
+# මෙහි Telegram credentials, Gemini key, storage channel ID, සහ වෙනත් settings ඇත.
 
 API_ID, API_HASH = resolve_telegram_config(35039780, '4ec122e3bde00836e5a02223c5a7714d')
 STORAGE_CHANNEL = int(os.environ.get("STORAGE_CHANNEL", "-1004489211765"))  # ඔයාගේ private "My Bot Storage" channel ID —
@@ -75,13 +76,18 @@ GEMINI_MODEL_CANDIDATES = [
     "gemini-3.1-flash-lite",
 ]
 GEMINI_MODEL_CANDIDATES = list(dict.fromkeys(GEMINI_MODEL_CANDIDATES))
+GEMINI_SYSTEM_INSTRUCTIONS = (
+    "ඔබ Sri Lankan userbot assistant. "
+    "සියල්ල Sinhala/Singlish වලින්, මිත්‍රශීලී හා සරලව උත්තර දෙන්න. "
+    "උපාදකයාට උදව් කරන වචනවලින්ම පිළිතුරු දෙන්න."
+)
 
 if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
-        logger.info("Gemini AI Client initialized successfully.")
+        logger.info("Gemini AI client සාර්ථකව initialize වුණා.")
     except Exception as e:
-        logger.error(f"AI Client Setup Error: {e}")
+        logger.error(f"Gemini AI client setup error: {e}")
 
 # ---- Cobalt (YouTube downloader) instance config ----
 # api.cobalt.tools blocks third-party/bot API usage and currently blocks
@@ -107,7 +113,7 @@ async def ensure_client_ready():
         return
     await client.start()
 
-DEFAULT_AFK_MSG = "මං පොඩි වැඩක ඉන්නේ. 💻 මේක Auto Reply එකක්, ආපු ගමන් මැසේජ් එකක් දාන්නම්..! ✨"
+DEFAULT_AFK_MSG = "මං දැන් කෙටි කාලයක් වාඩිවී ඉන්නවා. ඔබ එනවා නම් මට පසුව reply කරන්නම්. 😊"
 
 # ---- System Variables (bot එක run වෙද්දි memory එකේ තියෙන "state" එක) ----
 # 👉 මේවා restart එකකදී ගිලිහෙන්නේ නෑ — DATA PERSISTENCE section එකෙන්
@@ -130,6 +136,7 @@ WELCOME_MSG_ENABLED = True      # අලුත් කෙනෙක්ට එක�
 AI_REPLY_ENABLED = True         # AI Auto Reply (passive) ON/OFF
 
 # ==================== 🔹 WORKING HOURS HELPER (!hours feature එකේ logic) ====================
+# මේ function එකෙන් passive auto-reply ගැලපෙන පැය පරාසය පරීක්ෂා කරයි.
 def is_within_working_hours():
     """Returns True if passive auto-replies (AFK/AI) should fire right now.
     Supports overnight ranges too, e.g. START_HOUR=22, END_HOUR=6."""
@@ -142,23 +149,25 @@ def is_within_working_hours():
     return hour >= START_HOUR or hour < END_HOUR
 
 # ==================== 🔹 AI GENERATION HELPER (Gemini API call එක) ====================
+# මේ section එකෙන් Gemini API වටා request යවලා උත්තරය ගනී.
 async def generate_ai_response(prompt_text):
     if not ai_client:
-        return "AI Client not initialized. (GEMINI_API_KEY missing)"
+        return "AI Client setup කර නැත. GEMINI_API_KEY check කරන්න."
 
+    full_prompt = f"{GEMINI_SYSTEM_INSTRUCTIONS}\n\n{prompt_text}"
     last_error = None
     for model_name in GEMINI_MODEL_CANDIDATES:
         try:
             response = ai_client.models.generate_content(
                 model=model_name,
-                contents=prompt_text,
+                contents=full_prompt,
             )
             if response and response.text:
                 return response.text.strip()
             last_error = "empty response"
         except Exception as e:
             err_str = str(e)
-            logger.error(f"AI Generation Error ({model_name}): {err_str}")
+            logger.error(f"AI generation error ({model_name}): {err_str}")
 
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                 return "QUOTA_EXCEEDED"
@@ -169,10 +178,11 @@ async def generate_ai_response(prompt_text):
 
             return f"Error: {err_str[:80]}"
 
-    logger.error(f"All Gemini model candidates failed. Last error: {last_error}")
+    logger.error(f"Gemini model candidates සියල්ලම fail වුණා. අවසාන error: {last_error}")
     return "MODEL_NOT_FOUND"
 
 # ==================== 🔹 DATA PERSISTENCE (Storage Channel එකට Save/Load) ====================
+# Bot restart වුනත් settings නැති නොවී ඉතිරිවීමට මේ section එක භාවිතා කරයි.
 # bot එක Render එකේ restart වුණාම (redeploy/crash/sleep) memory එකේ තිබුණු ඔක්කොම
 # settings මැකෙනවා. ඒක වළක්වන්න, settings ටික JSON විදිහට STORAGE_CHANNEL එකට
 # message එකක් විදිහට save කරලා, start වෙනකොට ආයෙත් load කරගන්නවා.
@@ -218,10 +228,10 @@ async def load_bot_data():
                     REPLIED_USERS = {int(k): float(v) for k, v in raw_replied_users.items() if str(k).isdigit()}
                 else:
                     REPLIED_USERS = {}
-                logger.info("Bot data loaded successfully from Storage Channel.")
+                logger.info("Bot data storage channel එකෙන් load කරගත්තා.")
                 break
     except Exception as e:
-        logger.error(f"Data Load Error: {e}")
+        logger.error(f"Data load error: {e}")
 
 async def save_bot_data():
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS, AFK_MODE, AFK_REASON, REPLIED_USERS
@@ -246,9 +256,9 @@ async def save_bot_data():
         async for msg in client.iter_messages(STORAGE_CHANNEL, search="[USERBOT_DATA_SAVE]"):
             await msg.delete()
         await client.send_message(STORAGE_CHANNEL, text_to_save)
-        logger.info("Bot data saved successfully.")
+        logger.info("Bot data storage channel එකට save කරා.")
     except Exception as e:
-        logger.error(f"Data Save Error: {e}")
+        logger.error(f"Data save error: {e}")
 
 # Helper: Decide if a user is allowed to use !ask (restricted feature).
 # "Known" means either a real Telegram contact (owner already knows them), or
@@ -266,22 +276,22 @@ async def is_owner_online():
     except Exception:
         return False
 
-# Helper: Safely edit a message, falling back to a fresh send if the edit
-# fails (e.g. edit window expired, or message untouched) instead of silently
-# swallowing the error and leaving the user with no response at all.
+# Helper: Message edit එක safe way එකින් කරගන්න. Edit fail වුණොත් නැවත new message
+# එකක් යවලා user එකට පිළිතුරු ලැබෙන බවට ගැළපෙන කරයි.
 async def safe_edit(msg_or_event, text):
     try:
         await msg_or_event.edit(text)
     except MessageNotModifiedError:
         pass
     except Exception as e:
-        logger.warning(f"Edit failed ({e}); sending a new message instead.")
+        logger.warning(f"Edit fail වුණා ({e}); නව message එකක් යවමින් පවතී.")
         try:
             await client.send_message(msg_or_event.chat_id, text)
         except Exception as ex2:
-            logger.error(f"Fallback send also failed: {ex2}")
+            logger.error(f"Fallback send ද fail වුණා: {ex2}")
 
-# Helper: Safely Send Message, Detect Blockers, and Handle Flood Waits
+# Helper: Message යැවීමේදී block, flood wait, සහ invalid target වැනි අවස්ථා
+# ගණන කරලා safe way එකින් send කරයි.
 async def safe_send_message(entity, text, reply_to=None):
     target_type, target = resolve_send_target(entity, reply_to=reply_to)
     for attempt in range(2):
@@ -293,7 +303,7 @@ async def safe_send_message(entity, text, reply_to=None):
             return await client.send_message(target, text)
         except FloodWaitError as fw:
             wait_s = min(fw.seconds, 60)
-            logger.warning(f"FloodWait hit, sleeping {wait_s}s before retry.")
+            logger.warning(f"FloodWait hit වුණා. {wait_s}s sleep කරලා retry කරමින් පවතී.")
             await asyncio.sleep(wait_s)
             continue
         except (UserIsBlockedError, InputUserDeactivatedError, PeerIdInvalidError):
@@ -307,22 +317,23 @@ async def safe_send_message(entity, text, reply_to=None):
             if user_identifier not in BOT_BLOCKED_USERS:
                 BOT_BLOCKED_USERS.add(user_identifier)
                 await save_bot_data()
-                logger.warning(f"Detected Blocked User: {user_identifier}")
+                logger.warning(f"Blocked user detect වුණා: {user_identifier}")
                 await client.send_message(STORAGE_CHANNEL, f"🚫 **User Blocked Bot Detected!**\n\n👤 User: {user_identifier}")
             return None
         except Exception as ex:
-            logger.warning(f"Message send failed with {target_type} target ({ex}); retrying with fallback target.")
+            logger.warning(f"Message send fail වුණා ({target_type} target, {ex}); fallback target එකක් සමඟ retry කරමින් පවතී.")
             if target_type == "reply":
                 target_type, target = resolve_send_target(entity, reply_to=None)
                 continue
-            logger.error(f"Message Send Error: {ex}")
+            logger.error(f"Message send error: {ex}")
             return None
     return None
 
 # ==================== 🔹 OWNER COMMANDS (ඔයා type කරන !commands) ====================
-# @client.on(events.NewMessage(outgoing=True)) කියන්නේ "ඔයා (account owner) විසින්
-# යවන message" කියන එකයි. ඒ නිසා මේ function එක trigger වෙන්නේ ඔයා යවන
-# !status, !afk, !add වගේ commands වලට විතරයි — වෙන කාටවත් නෙවෙයි.
+# මෙහි ownerට පාලනය කිරීමට හැකි commands ලැයිස්තුගත කර ඇත.
+# @client.on(events.NewMessage(outgoing=True)) කියන්නේ "account owner විසින්
+# යවන message" එකට respond කරන handler එකයි. මේ section එකේ ownerට පාලනය
+# කරගන්න පුළුවන් commands කෙරෙනවා.
 @client.on(events.NewMessage(outgoing=True))
 async def command_handler(event):
     global RESPONSES, MEDIA_RESPONSES, IGNORED_USERS, REPLIED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, START_HOUR, END_HOUR, WELCOME_MSG_ENABLED, KNOWN_CONTACTS, TODO_LIST, AI_REPLY_ENABLED, BOT_BLOCKED_USERS
@@ -351,39 +362,39 @@ async def command_handler(event):
                 todo_str = " └ No active targets set\n"
 
             status_msg = (
-                "👋 **Hello, Satan!**\n\n"
+                "👋 **හයි! ඔබේ userbot සජීවීව වැඩ කරමින් පවතී.**\n\n"
                 f"🎯 **A/L Exam Countdown (2028-08-10)**\n"
                 f" └ `{days_left} Days Remaining!`\n\n"
-                "⚙️ **System Settings** _(මොකද කියලා පහළ බලන්න)_\n"
-                f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'} _(sent message වලට auto AFK reply)_\n"
-                f" ├ Working Hours ➔ {'🟢 ON (' + str(START_HOUR) + ':00-' + str(END_HOUR) + ':00)' if WORKING_HOURS_ONLY else '🔴 OFF'} _(auto-reply active වෙන පැය)_\n"
-                f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'} _(අලුත් අයට එකපාරක් යවන msg)_\n"
-                f" ├ AI Auto Reply ➔ {'🟢 ON' if AI_REPLY_ENABLED else '🔴 OFF'} _(AFK නැති වෙලාවක auto AI reply)_\n"
+                "⚙️ **System Settings** _(පහළින් බලන්න)_\n"
+                f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'} _(ඇවිත් reply එන වගේ)_\n"
+                f" ├ Working Hours ➔ {'🟢 ON (' + str(START_HOUR) + ':00-' + str(END_HOUR) + ':00)' if WORKING_HOURS_ONLY else '🔴 OFF'} _(Auto-reply වැඩ කරන පැය)_\n"
+                f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'} _(අලුත් අයට welcome msg යවන්න)_\n"
+                f" ├ AI Auto Reply ➔ {'🟢 ON' if AI_REPLY_ENABLED else '🔴 OFF'} _(AFK නැති үед AI reply)_\n"
                 f" ├ Custom Text Replies ➔ `{len(RESPONSES)} Units` _(!add එකෙන් හදපු ඒවා)_\n"
                 f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)} Units` _(!addmedia එකෙන් හදපු ඒවා)_\n"
                 f" ├ Ignored / Bot Disabled Users ➔ `{len(IGNORED_USERS)} Users` _(ඔයා !block කරපු අය)_\n"
-                f" └ Users Who Blocked Bot ➔ `{len(BOT_BLOCKED_USERS)} Users` _(ඔයාව Telegram එකේම block කරපු අය)_\n\n"
+                f" └ Users Who Blocked Bot ➔ `{len(BOT_BLOCKED_USERS)} Users` _(ඔයාව Telegram එකේ block කරපු අය)_\n\n"
                 f"📌 **Daily Study Targets**\n{todo_str}\n"
                 "🤖 **Bot Commands** 👇\n\n"
-                " ➦ `!status` - Dashboard & Countdown\n"
-                " ➦ `!ignored` - ඔයා Bot ව Disable කරපු Users ලාගේ List එක\n"
-                " ➦ `!blockedusers` - Bot එක Block කර ඇති අයගේ List එක\n"
-                " ➦ `!todo <target>` - Target එකක් එකතු කිරීමට\n"
-                " ➦ `!done <number>` - Target එක Complete කිරීමට\n"
-                " ➦ `!cleartodo` - Targets Clear කිරීමට\n"
-                " ➦ `!afk` / `!afk off` - Custom AFK Mode On/Off\n"
-                " ➦ `!hours on` / `!hours off` - Working Hours\n"
-                " ➦ `!hours range <start> <end>` - Working Hours Range Set කිරීමට\n"
-                " ➦ `!welcome on` / `!welcome off` - Welcome Msg\n"
-                " ➦ `!ai on` / `!ai off` - AI Auto Reply\n"
-                " ➦ `!add word=reply` - Auto Reply එකතු කිරීමට\n"
-                " ➦ `!addmedia word` - Media Auto Reply\n"
-                " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
-                " ➦ `!list` / `!listmedia` - Auto Replies ලැයිස්තුව\n"
-                " ➦ `!block` / `!unblock` - Chat එකේදී Bot Disable/Enable කිරීමට\n"
-                " ➦ `!gcast <msg>` - Message Broadcast\n"
-                " ➦ `!reset` - Clear History & Contacts\n\n"
-                "💡 **Pray to the Satan...! 🩸🖤**\n"
+                " ➦ `!status` - Dashboard සහ countdown බලන්න\n"
+                " ➦ `!ignored` - Bot disable කරපු users ලැයිස්තුව\n"
+                " ➦ `!blockedusers` - Bot block කරපු users ලැයිස්තුව\n"
+                " ➦ `!todo <target>` - Target එකතු කරන්න\n"
+                " ➦ `!done <number>` - Target complete කරන්න\n"
+                " ➦ `!cleartodo` - Targets clear කරන්න\n"
+                " ➦ `!afk` / `!afk off` - AFK mode on/off\n"
+                " ➦ `!hours on` / `!hours off` - Working hours on/off\n"
+                " ➦ `!hours range <start> <end>` - Working hours range set කරන්න\n"
+                " ➦ `!welcome on` / `!welcome off` - Welcome msg on/off\n"
+                " ➦ `!ai on` / `!ai off` - AI auto reply on/off\n"
+                " ➦ `!add word=reply` - Custom text reply එකතු කරන්න\n"
+                " ➦ `!addmedia word` - Media auto reply එකතු කරන්න\n"
+                " ➦ `!delmedia word` - Media reply අයින් කරන්න\n"
+                " ➦ `!list` / `!listmedia` - Replies ලැයිස්තුව බලන්න\n"
+                " ➦ `!block` / `!unblock` - Chat එක සඳහා bot disable/enable කරන්න\n"
+                " ➦ `!gcast <msg>` - Broadcast message යවන්න\n"
+                " ➦ `!reset` - History සහ contacts clear කරන්න\n\n"
+                "💡 **ඔබේ study journey එකට support වෙන්න මම here.**\n"
                 "🚀 Status: Active & Operational"
             )
             await safe_edit(event, status_msg)
@@ -391,11 +402,11 @@ async def command_handler(event):
 
         if raw_text in ["!ignored", "!blocklist"]:
             if not IGNORED_USERS:
-                await safe_edit(event, "🟢 **ඔබ විසින් Bot ව වැඩ නොකරන ලෙස Block/Disable කළ අය කිසිවෙක් නැත.**")
+                await safe_edit(event, "🟢 **Bot disable කර තිබෙන users කිසිවෙක් නැත.**")
                 return
 
             await safe_edit(event, "🔍 **List එක සකස් කරමින් පවතී...**")
-            msg = "🚫 **ඔබ විසින් Bot Disable / Block කළ Users ලැයිස්තුව:**\n\n"
+            msg = "🚫 **Bot disable / block කරගත් users ලැයිස්තුව:**\n\n"
 
             for u_id in list(IGNORED_USERS):
                 try:
@@ -413,9 +424,9 @@ async def command_handler(event):
 
         if raw_text == "!blockedusers":
             if not BOT_BLOCKED_USERS:
-                await safe_edit(event, "🟢 **Bot/Userbot එක Block කළ අය කිසිවෙක් නැත.**")
+                await safe_edit(event, "🟢 **Bot block කරගත් users කිසිවෙක් නැත.**")
                 return
-            msg = "🚫 **Bot එක Block කර ඇති Users ලැයිස්තුව:**\n\n"
+            msg = "🚫 **Bot block කර ඇති users ලැයිස්තුව:**\n\n"
             for u in BOT_BLOCKED_USERS:
                 msg += f"• {u}\n"
             await safe_edit(event, msg)
@@ -437,7 +448,7 @@ async def command_handler(event):
                     await save_bot_data()
                     await safe_edit(event, f"🎉 **Target Completed:** `{removed}`")
                 else:
-                    await safe_edit(event, "❌ වැරදි අංකයකි.")
+                    await safe_edit(event, "❌ වැරදි අංකයකි. නැවත පරීක්ෂා කරන්න.")
             except Exception:
                 await safe_edit(event, "❌ Command එක වැරදියි. (e.g. `!done 1`)")
             return
@@ -445,7 +456,7 @@ async def command_handler(event):
         if raw_text == "!cleartodo":
             TODO_LIST.clear()
             await save_bot_data()
-            await safe_edit(event, "🧹 **සියලුම Study Targets Clear කළා!**")
+            await safe_edit(event, "🧹 **සියලුම study targets clear කරලා තියෙනවා!**")
             return
 
         if raw_text.startswith("!afk"):
@@ -454,12 +465,12 @@ async def command_handler(event):
                 AFK_MODE = False
                 AFK_REASON = DEFAULT_AFK_MSG
                 await save_bot_data()
-                await safe_edit(event, "🔴 **AFK Mode Off.**")
+                await safe_edit(event, "🔴 **AFK mode off කරා.**")
             else:
                 AFK_REASON = arg if arg else DEFAULT_AFK_MSG
                 AFK_MODE = True
                 await save_bot_data()
-                await safe_edit(event, f"🟢 **AFK Mode On!**\n\n💬 Message:\n\"{AFK_REASON}\"")
+                await safe_edit(event, f"🟢 **AFK mode on කරා!**\n\n💬 Message:\n\"{AFK_REASON}\"")
             return
 
         if raw_text.startswith("!hours"):
@@ -487,7 +498,7 @@ async def command_handler(event):
                     else:
                         await safe_edit(event, "❌ පැය 0-23 අතර දාන්න.")
                 except ValueError:
-                    await safe_edit(event, "❌ Usage: `!hours range <start_hour> <end_hour>` e.g. `!hours range 1 7`")
+                    await safe_edit(event, "❌ Usage: `!hours range <start_hour> <end_hour>` උදා: `!hours range 1 7`")
             else:
                 await safe_edit(event, "❌ Usage: `!hours on` / `!hours off` / `!hours range <start> <end>`")
             return
@@ -524,7 +535,7 @@ async def command_handler(event):
 
         if raw_text == "!list":
             if not RESPONSES:
-                await safe_edit(event, "📜 Text Auto Replies කිසිවක් නැත.")
+                await safe_edit(event, "📜 Text auto replies කිසිවක් නැත.")
                 return
             msg = "📝 **Custom Text Replies:**\n\n"
             for k, v in RESPONSES.items():
@@ -548,12 +559,12 @@ async def command_handler(event):
                     )
                     MEDIA_RESPONSES[key] = forwarded.id
                     await save_bot_data()
-                    await safe_edit(event, f"🖼️ Media reply එකතු කළා for: `{key}`")
+                    await safe_edit(event, f"🖼️ Media reply එකතු කළා: `{key}`")
                 except Exception as e:
-                    logger.error(f"AddMedia Error: {e}")
+                    logger.error(f"AddMedia error: {e}")
                     await safe_edit(event, "❌ Media save කිරීමේදී error එකක් වුණා.")
             else:
-                await safe_edit(event, "❌ Media Message එකකට Reply කර මේ Command එක දමන්න.")
+                await safe_edit(event, "❌ Media message එකකට reply කරලා මේ command එක දාන්න.")
             return
 
         if raw_text.startswith("!delmedia "):
@@ -566,7 +577,7 @@ async def command_handler(event):
 
         if raw_text == "!listmedia":
             if not MEDIA_RESPONSES:
-                await safe_edit(event, "🖼️ Custom Media Replies කිසිවක් නැත.")
+                await safe_edit(event, "🖼️ Custom media replies කිසිවක් නැත.")
                 return
             msg = "🖼️ **Custom Media Replies:**\n\n"
             for k in MEDIA_RESPONSES.keys():
@@ -580,24 +591,24 @@ async def command_handler(event):
                 if raw_text == "!block":
                     IGNORED_USERS.add(chat.id)
                     await save_bot_data()
-                    await safe_edit(event, "🚫 **මේ Chat එක සඳහා Bot Disable කරන ලදී.**")
+                    await safe_edit(event, "🚫 **මේ chat එක සඳහා bot disable කරා.**")
                 else:
                     IGNORED_USERS.discard(chat.id)
                     await save_bot_data()
-                    await safe_edit(event, "✅ **මේ Chat එක සඳහා Bot Enable කරන ලදී.**")
+                    await safe_edit(event, "✅ **මේ chat එක සඳහා bot enable කරා.**")
             return
 
         if raw_text.startswith("!gcast "):
             bc_msg = raw_text[7:].strip()
             if bc_msg:
-                await safe_edit(event, "📢 **Broadcasting Message...**")
+                await safe_edit(event, "📢 **Broadcast message යවමින් පවතී...**")
                 sent_count = 0
                 for user in list(KNOWN_CONTACTS):
                     res = await safe_send_message(user, bc_msg)
                     if res:
                         sent_count += 1
                     await asyncio.sleep(0.5)
-                await safe_edit(event, f"✅ Broadcast Complete! Sent to `{sent_count}` users.")
+                await safe_edit(event, f"✅ Broadcast complete! `{sent_count}` users වෙත යැවුණා.")
             return
 
         if raw_text == "!reset":
@@ -605,16 +616,17 @@ async def command_handler(event):
             KNOWN_CONTACTS.clear()
             BOT_BLOCKED_USERS.clear()
             await save_bot_data()
-            await safe_edit(event, "🧹 **History, Contacts & Blocked List Cleared!**")
+            await safe_edit(event, "🧹 **History, contacts සහ blocked list clear කරා!**")
             return
 
     except Exception as e:
-        logger.error(f"Owner Handler Error: {e}")
+        logger.error(f"Owner handler error: {e}")
 
 # ==================== 🔹 PUBLIC HANDLER (අනිත් අය message කළාම) ====================
-# @client.on(events.NewMessage(incoming=True, ...)) කියන්නේ "අනිත් අය ඔයාට යවන
-# message" කියන එකයි. Welcome message, !ask, !ytmp3, !exam, auto-reply — මේ
-# ඔක්කොම logic එක මේ function එක ඇතුළේ.
+# මෙය public users විසින් botට යවන message ටිකට පිළිතුරු දෙන core logic එකයි.
+# @client.on(events.NewMessage(incoming=True, ...)) කියන්නේ "public user විසින්
+# botට යවන message" එකට ප්‍රතිචාර දෙන handler එකයි. Welcome, !ask, !ytmp3,
+# !exam, auto-reply, media reply — මේ සියල්ල මෙතැනින් පාලනය වේ.
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def reply_handler(event):
     global REPLIED_USERS, IGNORED_USERS, AFK_MODE, AFK_REASON, WORKING_HOURS_ONLY, USER_LAST_MSG_TIME
@@ -643,18 +655,18 @@ async def reply_handler(event):
                         await save_bot_data()
                     elif WELCOME_MSG_ENABLED:
                         welcome_text = (
-                            "💌 **Hey! Thanks for your message.**\n"
-                            "මම දැනට පොඩි වැඩක ඉන්නේ, ඉක්මනින්ම reply කරන්නම්! 😊\n\n"
-                            "💡 **මෙතෙක් මගෙන් ලබාගත හැකි පහසුකම්:**\n"
-                            " ➦ `!ask <ප්‍රශ්නය>` - A/L පාඩම් වල ඕනෑම ප්‍රශ්නයක් නිරාකරණය කරගන්න (ඊළඟ message එකේ ඉඳන්)\n"
-                            " ➦ `!ytmp3 <Link>` - YouTube සින්දු MP3 විදිහට Download කරගන්න\n"
-                            " ➦ `!help` - සියලුම Commands බලාගන්න"
+                            "💌 **හයි! ඔබේ message එකට තාම පිළිතුරු දෙනවා.**\n"
+                            "මම දැන් පුංචි වැඩක ඉන්නවා, ඉක්මනින්ම reply කරනවා. 😊\n\n"
+                            "💡 **මෙතෙක් මගෙන් ලබාගත හැකි දේවල්:**\n"
+                            " ➦ `!ask <ප්‍රශ්නය>` - A/L පාඩම් ගැන උදව් ගන්න\n"
+                            " ➦ `!ytmp3 <Link>` - YouTube සින්දු MP3 විදිහට download කරන්න\n"
+                            " ➦ `!help` - commands සියල්ල බලන්න"
                         )
                         await safe_send_message(event.chat_id, welcome_text, reply_to=event)
                         KNOWN_CONTACTS.add(user_id)
                         await save_bot_data()
             except Exception as ex:
-                logger.error(f"Welcome Fetch Error: {ex}")
+                logger.error(f"Welcome fetch error: {ex}")
 
         if not incoming_raw:
             # Media-only message (sticker/photo/voice, no caption). Previously
@@ -664,29 +676,33 @@ async def reply_handler(event):
                 await safe_send_message(event.chat_id, AFK_REASON, reply_to=event)
             return
 
-        if incoming_raw.lower() in ["!help", "/help", "help"]:
+        if incoming_raw.lower() in ["!help", "/help", "help", "!commands", "/commands", "commands"]:
             help_text = (
-                "🤖 **Assistant Public Commands:**\n\n"
-                " ➦ `!ask <Question>` - Study ප්‍රශ්න වලට Step-by-Step විසඳුම් ලබාගන්න\n"
-                " ➦ `!ytmp3 <YouTube Link>` - Audio Download කරගන්න\n"
-                " ➦ `!exam` - A/L Exam Countdown එක බලන්න"
+                "🤖 **Public commands:**\n\n"
+                " ➦ `!ask <Question>` - Study ප්‍රශ්න වලට step-by-step උදව් ගන්න\n"
+                " ➦ `!ytmp3 <YouTube Link>` - Audio download කරන්න\n"
+                " ➦ `!exam` - A/L exam countdown බලන්න"
             )
             await safe_send_message(event.chat_id, help_text, reply_to=event)
+            return
+
+        if incoming_raw.lower() == "!ping":
+            await safe_send_message(event.chat_id, "🏓 Pong! Bot එක සජීවීව වැඩ කරමින් පවතී. 😊", reply_to=event)
             return
 
         if incoming_raw.lower() == "!exam":
             tz = pytz.timezone('Asia/Colombo')
             now = datetime.now(tz).replace(tzinfo=None)
             days_left = (AL_EXAM_DATE - now).days
-            await safe_send_message(event.chat_id, f"🎯 **2028 A/L Exam එකට තව දින `{days_left}` ක් තියෙනවා!**\n\n_Good Luck with your Studies!_ 📚", reply_to=event)
+            await safe_send_message(event.chat_id, f"🎯 **2028 A/L Exam එකට තව දින `{days_left}` ක් තියෙනවා!**\n\n_Study එකට good luck!_ 📚", reply_to=event)
             return
 
         if incoming_raw.lower().startswith("!ask "):
             if not is_known_user(user_id, sender):
                 await safe_send_message(
                     event.chat_id,
-                    "🔒 **මේ command එක දැනට ඔයාට use කරන්න බැහැ.**\n"
-                    "ටිකක් ඉඳලා ආයෙත් message එකක් යවන්න, welcome message එකෙන් පස්සේ `!ask` access වෙනවා.",
+                    "🔒 **මේ command එක දැන් ඔබට use කරන්න බැහැ.**\n"
+                    "තවත් ටිකක් ඉන්න, welcome message එකෙන් පස්සේ `!ask` access වෙනවා.",
                     reply_to=event
                 )
                 return
@@ -694,20 +710,20 @@ async def reply_handler(event):
             if ai_client and query:
                 status_msg = await safe_send_message(event.chat_id, "🧠 **ප්‍රශ්නය විශ්ලේෂණය කරමින් පවතී...**", reply_to=event)
                 prompt = (
-                    f"You are an expert A/L tutor (Maths, Physics, Chemistry, etc.). "
-                    f"Solve or explain this question clearly step-by-step in Sinhala/Singlish: '{query}'"
+                    f"ඔබ A/L පන්තියේ expert tutor කෙනෙක්. "
+                    f"මෙම ප්‍රශ්නය step-by-step, Sinhala/Singlish වලින් පැහැදිලිව විසඳන්න: '{query}'"
                 )
                 ai_text = await generate_ai_response(prompt)
 
                 if status_msg:
                     if ai_text == "QUOTA_EXCEEDED":
-                        await safe_edit(status_msg, "⚠️ **AI API Quota Exceeded:** කරුණාකර අලුත් API Key එකක් Render එකට Update කරන්න.")
+                        await safe_edit(status_msg, "⚠️ **AI API quota ගිණුම අවසන්යි:** අලුත් API key එක render එකට update කරන්න.")
                     elif ai_text == "MODEL_NOT_FOUND":
-                        await safe_edit(status_msg, "⚠️ **AI Model Unavailable:** Gemini model name එක deprecated වෙලා. GEMINI_MODEL env var එක check කරන්න.")
+                        await safe_edit(status_msg, "⚠️ **AI model නොපවතී:** Gemini model name එක deprecated වෙලා. GEMINI_MODEL env var check කරන්න.")
                     elif ai_text.startswith("Error:"):
-                        await safe_edit(status_msg, f"⚠️ **AI Error:** {ai_text}")
+                        await safe_edit(status_msg, f"⚠️ **AI error:** {ai_text}")
                     elif ai_text:
-                        await safe_edit(status_msg, f"📚 **Study Solution:**\n\n{ai_text}")
+                        await safe_edit(status_msg, f"📚 **Study solution:**\n\n{ai_text}")
                     else:
                         await safe_edit(status_msg, "❌ උත්තරය සොයාගැනීමට නොහැකි විය.")
             elif not ai_client:
@@ -717,11 +733,11 @@ async def reply_handler(event):
         if incoming_raw.lower().startswith("!ytmp3 "):
             url = extract_youtube_url(incoming_raw)
             if not url:
-                await safe_send_message(event.chat_id, "❌ **වැරදි Link එකකි!** කරුණාකර නිවැරදි YouTube URL එකක් ලබාදෙන්න.", reply_to=event)
+                await safe_send_message(event.chat_id, "❌ **වැරදි link එකකි!** නිවැරදි YouTube URL එකක් දෙන්න.", reply_to=event)
                 return
 
             if "youtube.com" in url or "youtu.be" in url:
-                status_msg = await safe_send_message(event.chat_id, "📥 **YouTube MP3 Download වෙමින් පවතී...**", reply_to=event)
+                status_msg = await safe_send_message(event.chat_id, "📥 **YouTube MP3 download වෙමින් පවතී...**", reply_to=event)
                 # Unique filename per request — the old fixed "downloads/audio.mp3"
                 # path meant two simultaneous requests from different users would
                 # overwrite/corrupt each other's downloads.
@@ -770,12 +786,12 @@ async def reply_handler(event):
                                         fail_reason = f"file too large ({int(content_length)//1024//1024}MB > {MAX_DOWNLOAD_MB}MB limit)"
                                     else:
                                         if status_msg:
-                                            await safe_edit(status_msg, "⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
+                                            await safe_edit(status_msg, "⬆️ **Audio එක Telegram එකට upload වෙමින් පවතී...**")
                                         os.makedirs("downloads", exist_ok=True)
                                         with open(filepath, "wb") as f:
                                             f.write(await file_resp.read())
 
-                                        await client.send_file(event.chat_id, filepath, caption="🎵 **YouTube Audio Downloaded Successfully!**")
+                                        await client.send_file(event.chat_id, filepath, caption="🎵 **YouTube audio download කරා!**")
                                         if status_msg:
                                             try:
                                                 await status_msg.delete()
@@ -787,17 +803,17 @@ async def reply_handler(event):
                         if COBALT_INSTANCE_URL.rstrip("/") == "https://api.cobalt.tools":
                             await safe_edit(
                                 status_msg,
-                                "❌ **Download Error:** Public Cobalt instance එක YouTube සහ third-party "
+                                "❌ **Download error:** Public Cobalt instance එක YouTube සහ third-party "
                                 "bots block කරලා තියෙන්නේ. Self-hosted Cobalt instance එකක් setup කර "
-                                "`COBALT_INSTANCE_URL` env var එක Render එකට දාන්න."
+                                "`COBALT_INSTANCE_URL` env var එක render එකට දාන්න."
                             )
                         else:
-                            await safe_edit(status_msg, f"❌ **Download Error:** {fail_reason or 'Audio එක ලබාගැනීමට නොහැකි විය.'}")
+                            await safe_edit(status_msg, f"❌ **Download error:** {fail_reason or 'Audio එක ලබාගැනීමට නොහැකි විය.'}")
 
                 except Exception as e:
                     logger.error(f"YT Download Error: {e}")
                     if status_msg:
-                        await safe_edit(status_msg, "❌ **Download Error:** Server එක මගින් Download කිරීම අසාර්ථක විය.")
+                        await safe_edit(status_msg, "❌ **Download error:** Server එකේ සම්පත්/connection issue එකක් නිසා download කළ නොහැකි විය.")
                 finally:
                     if os.path.exists(filepath):
                         try:
@@ -820,9 +836,9 @@ async def reply_handler(event):
                 if stored_msg and getattr(stored_msg, "media", None):
                     await client.send_file(event.chat_id, stored_msg.media, reply_to=event.id)
                 else:
-                    logger.warning(f"Media response missing in storage channel for id={stored_id}")
+                    logger.warning(f"Storage channel එකේ media response නැත. id={stored_id}")
             except Exception as e:
-                logger.error(f"Media Reply Send Error: {e}")
+                logger.error(f"Media reply send error: {e}")
             return
 
         current_time = time.time()
@@ -848,14 +864,15 @@ async def reply_handler(event):
                 prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
                 ai_text = await generate_ai_response(prompt)
                 if ai_text and ai_text not in ["QUOTA_EXCEEDED", "MODEL_NOT_FOUND"] and not ai_text.startswith("Error:"):
-                    await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto Reply - Type !help for commands)_", reply_to=event)
+                    await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto reply - commands බලන්න !help)_", reply_to=event)
             REPLIED_USERS[user_id] = current_time
             await save_bot_data()
 
     except Exception as e:
-        logger.error(f"Public Handler Error: {e}")
+        logger.error(f"Public handler error: {e}")
 
 # ==================== 🔹 FLASK & STARTUP (Render health-check + Bot Start) ====================
+# Render / hosting පද්ධතියට alive වීම පෙන්වීමට Flask server එක දියත් කරයි.
 # Render එකට "මේ service එක alive ද?" කියලා check කරන්න Flask web server
 # එකක් ඕන (එහෙම නැත්නම් Render එක bot එක restart කරනවා). ඒක background
 # thread එකක run කරලා, main thread එකේ Telegram bot එක run කරනවා.
@@ -869,20 +886,20 @@ async def main():
     logger.info("Starting Telethon Client...")
     try:
         await ensure_client_ready()
-        logger.info("Userbot Logged In Successfully!")
+        logger.info("Userbot සාර්ථකව login වුණා!")
     except Exception as e:
-        logger.error(f"Telegram startup/login failed: {e}")
+        logger.error(f"Telegram startup/login අසාර්ථක විය: {e}")
         return
 
     try:
         await load_bot_data()
     except Exception as e:
-        logger.error(f"Persistence load failed: {e}")
+        logger.error(f"Persistence load අසාර්ථක විය: {e}")
 
     try:
         await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Successfully Deployed & Updated!**\n\n_System is active and ready to operate._ 🖤")
     except Exception as e:
-        logger.error(f"Startup Notification Error: {e}")
+        logger.error(f"Startup notification error: {e}")
 
     await client.run_until_disconnected()
 

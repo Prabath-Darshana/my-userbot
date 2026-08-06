@@ -3,7 +3,7 @@ import re
 
 
 def resolve_send_target(entity, reply_to=None):
-    """Return a safe send target for Telegram messages.
+    """Telegram message send target එක safe way එකින් තෝරාගන්න.
 
     When a reply target is available, prefer it. If the object cannot be used
     for a reply, fall back to its chat id or the original entity.
@@ -24,8 +24,8 @@ def resolve_send_target(entity, reply_to=None):
 
 
 def extract_media_message(message_result):
-    """Normalize Telethon message fetch results so media replies work for both
-    single-message and list-based responses.
+    """Telethon එකෙන් ආවා නම් single message හෝ list එකක් වුවත් media reply එකට
+    නිවැරදි format එකට convert කරන helper.
     """
     if message_result is None:
         return None
@@ -39,7 +39,7 @@ def extract_media_message(message_result):
 
 
 def normalize_bot_state(data, defaults):
-    """Normalize persisted bot state so missing fields fall back to safe defaults."""
+    """Restart එකකින් පසුව data නැති වුනා면 safe defaults භාවිතා කර bot state normalize කරයි."""
     if not isinstance(data, dict):
         data = {}
 
@@ -64,13 +64,13 @@ def normalize_bot_state(data, defaults):
 
 
 def can_send_ai_reply(user_id, current_time, replied_users, cooldown_seconds):
-    """Return True when the user is eligible for the next AI auto-reply."""
+    """User එකකට AI auto-reply යවන්න පුළුවන් ද නැද්ද කියලා cooldown basedව පරීක්ෂා කරයි."""
     last_replied = replied_users.get(user_id, 0)
     return (current_time - last_replied) > cooldown_seconds
 
 
 def resolve_telegram_config(default_api_id, default_api_hash, env=None):
-    """Resolve Telegram credentials from the environment, falling back safely."""
+    """Environment variables වලින් Telegram credentials ගෙන එන්න. වැරදි/blank values නම් defaults use කරයි."""
     env = os.environ if env is None else env
     api_id_value = env.get("API_ID", default_api_id)
     api_hash_value = env.get("API_HASH", default_api_hash)
@@ -89,7 +89,7 @@ def resolve_telegram_config(default_api_id, default_api_hash, env=None):
 
 
 def parse_size_limit_mb(value, default_mb=100):
-    """Parse a size limit from env/input safely."""
+    """Download size limit env var එක safe way එකින් parse කරයි."""
     try:
         parsed = int(str(value).strip())
     except (TypeError, ValueError):
@@ -98,7 +98,7 @@ def parse_size_limit_mb(value, default_mb=100):
 
 
 def extract_youtube_url(text):
-    """Extract a YouTube URL from a message if present."""
+    """Message එකෙන් YouTube URL එකක් identify කරගන්න."""
     if not text:
         return None
     match = re.search(r'https?://(?:www\.)?(?:youtube\.com|youtu\.be)[^\s>]+', text, re.IGNORECASE)
