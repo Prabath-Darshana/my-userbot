@@ -7,12 +7,12 @@ import threading
 import logging
 from datetime import datetime
 import pytz
+import aiohttp
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors import UserIsBlockedError, PeerIdInvalidError, InputUserDeactivatedError
 from google import genai
-import yt_dlp
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO)
@@ -61,7 +61,7 @@ WORKING_HOURS_ONLY = False
 START_HOUR = 1
 END_HOUR = 7
 WELCOME_MSG_ENABLED = True
-AI_REPLY_ENABLED = True  # AI Auto Reply සක්‍රිය කර ඇත
+AI_REPLY_ENABLED = True  # AI Auto Reply Enabled
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
@@ -482,7 +482,6 @@ async def reply_handler(event):
             return
 
         if incoming_raw.lower().startswith("!ytmp3 "):
-            # Extract valid HTTP/HTTPS URL via Regex (cleans brackets, bad prefixes like Yhttps://, etc.)
             match = re.search(r'(https?://[^\s>]+)', incoming_raw)
             if match:
                 url = match.group(1).rstrip('>')
@@ -493,39 +492,48 @@ async def reply_handler(event):
             if "youtube.com" in url or "youtu.be" in url:
                 status_msg = await safe_send_message(event.chat_id, "📥 **YouTube MP3 Download වෙමින් පවතී...**", reply_to=event)
                 try:
-                    ydl_opts = {
-                        'format': 'bestaudio/best',
-                        'outtmpl': 'downloads/%(id)s.%(ext)s',
-                        'max_filesize': 50 * 1024 * 1024,
-                        'noplaylist': True,  # Prevent downloading entire playlist when URL contains list=
-                        'extractor_args': {
-                            'youtube': {
-                                'player_client': ['android', 'ios']  # Bypass YouTube bot blocking
-                            }
-                        },
-                        'quiet': True,
+                    cobalt_api = "https://api.cobalt.tools/"
+                    headers = {
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
                     }
+                    payload = {
+                        "url": url,
+                        "isAudioOnly": True,
+                        "aFormat": "mp3"
+                    }
+
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(cobalt_api, json=payload, headers=headers) as resp:
+                            if resp.status == 200:
+                                res_json = await resp.json()
+                                dl_url = res_json.get("url")
+                                
+                                if dl_url:
+                                    if status_msg:
+                                        await status_msg.edit("⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
+                                    
+                                    os.makedirs("downloads", exist_ok=True)
+                                    filepath = "downloads/audio.mp3"
+                                    
+                                    async with session.get(dl_url) as file_resp:
+                                        with open(filepath, "wb") as f:
+                                            f.write(await file_resp.read())
+
+                                    await client.send_file(event.chat_id, filepath, caption="🎵 **YouTube Audio Downloaded Successfully!**")
+                                    if status_msg:
+                                        await status_msg.delete()
+                                    if os.path.exists(filepath):
+                                        os.remove(filepath)
+                                    return
                     
-                    # Run yt-dlp in a separate thread to prevent blocking asyncio loop
-                    def download_yt():
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=True)
-                            filename = ydl.prepare_filename(info)
-                            return info, filename
-
-                    info, filename = await asyncio.to_thread(download_yt)
-
                     if status_msg:
-                        await status_msg.edit("⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
-                    await client.send_file(event.chat_id, filename, caption=f"🎵 **{info.get('title')}**\n\nDownloaded via Assistant Bot")
-                    if status_msg:
-                        await status_msg.delete()
-                    if os.path.exists(filename):
-                        os.remove(filename)
+                        await status_msg.edit("❌ **Download Error:** Audio එක ලබාගැනීමට නොහැකි විය.")
+
                 except Exception as e:
                     logger.error(f"YT Download Error: {e}")
                     if status_msg:
-                        await status_msg.edit("❌ **Download Error:** File එක විශාල වැඩියි හෝ YouTube ආරක්ෂිත සීමාවන් නිසා බාගත නොහැක.")
+                        await status_msg.edit("❌ **Download Error:** Server එක මගින් Download කිරීම අසාර්ථක විය.")
             return
 
         if incoming_raw.lower() in RESPONSES:
