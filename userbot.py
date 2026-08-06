@@ -11,6 +11,7 @@ import pytz
 import aiohttp
 from flask import Flask
 from telethon import TelegramClient, events
+from bot_utils import resolve_send_target
 from telethon.sessions import StringSession
 from telethon.errors import (
     UserIsBlockedError,
@@ -245,12 +246,14 @@ async def safe_edit(msg_or_event, text):
 
 # Helper: Safely Send Message, Detect Blockers, and Handle Flood Waits
 async def safe_send_message(entity, text, reply_to=None):
+    target_type, target = resolve_send_target(entity, reply_to=reply_to)
     for attempt in range(2):
         try:
-            if reply_to:
-                return await reply_to.reply(text)
-            else:
-                return await client.send_message(entity, text)
+            if target_type == "reply":
+                return await target.reply(text)
+            if target_type == "chat":
+                return await client.send_message(target, text)
+            return await client.send_message(target, text)
         except FloodWaitError as fw:
             wait_s = min(fw.seconds, 60)
             logger.warning(f"FloodWait hit, sleeping {wait_s}s before retry.")
@@ -271,6 +274,10 @@ async def safe_send_message(entity, text, reply_to=None):
                 await client.send_message(STORAGE_CHANNEL, f"🚫 **User Blocked Bot Detected!**\n\n👤 User: {user_identifier}")
             return None
         except Exception as ex:
+            logger.warning(f"Message send failed with {target_type} target ({ex}); retrying with fallback target.")
+            if target_type == "reply":
+                target_type, target = resolve_send_target(entity, reply_to=None)
+                continue
             logger.error(f"Message Send Error: {ex}")
             return None
     return None

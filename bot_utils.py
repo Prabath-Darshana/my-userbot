@@ -1,0 +1,19 @@
+def resolve_send_target(entity, reply_to=None):
+    """Return a safe send target for Telegram messages.
+
+    When a reply target is available, prefer it. If the object cannot be used
+    for a reply, fall back to its chat id or the original entity.
+    """
+    if reply_to is not None:
+        if hasattr(reply_to, "reply") and callable(getattr(reply_to, "reply")):
+            return "reply", reply_to
+
+        chat_id = getattr(reply_to, "chat_id", None)
+        if chat_id is not None:
+            return "chat", chat_id
+
+    chat_id = getattr(entity, "chat_id", None)
+    if chat_id is not None:
+        return "chat", chat_id
+
+    return "entity", entity
