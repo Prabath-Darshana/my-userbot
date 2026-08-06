@@ -61,7 +61,7 @@ WORKING_HOURS_ONLY = False
 START_HOUR = 1
 END_HOUR = 7
 WELCOME_MSG_ENABLED = True
-AI_REPLY_ENABLED = False  # Quota Error නිසා AI Auto Reply Off කර ඇත
+AI_REPLY_ENABLED = True  # AI Auto Reply සක්‍රිය කර ඇත
 
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
@@ -70,7 +70,7 @@ async def generate_ai_response(prompt_text):
     
     try:
         response = ai_client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-2.5-flash',
             contents=prompt_text,
         )
         if response and response.text:
@@ -482,7 +482,14 @@ async def reply_handler(event):
             return
 
         if incoming_raw.lower().startswith("!ytmp3 "):
-            url = incoming_raw[7:].strip().strip('<>')  # < > ලකුණු Auto-Clean කරයි
+            # Extract valid HTTP/HTTPS URL via Regex (cleans brackets, bad prefixes like Yhttps://, etc.)
+            match = re.search(r'(https?://[^\s>]+)', incoming_raw)
+            if match:
+                url = match.group(1).rstrip('>')
+            else:
+                await safe_send_message(event.chat_id, "❌ **වැරදි Link එකකි!** කරුණාකර නිවැරදි YouTube URL එකක් ලබාදෙන්න.", reply_to=event)
+                return
+
             if "youtube.com" in url or "youtu.be" in url:
                 status_msg = await safe_send_message(event.chat_id, "📥 **YouTube MP3 Download වෙමින් පවතී...**", reply_to=event)
                 try:
@@ -490,10 +497,23 @@ async def reply_handler(event):
                         'format': 'bestaudio/best',
                         'outtmpl': 'downloads/%(id)s.%(ext)s',
                         'max_filesize': 50 * 1024 * 1024,
+                        'noplaylist': True,  # Prevent downloading entire playlist when URL contains list=
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['android', 'ios']  # Bypass YouTube bot blocking
+                            }
+                        },
+                        'quiet': True,
                     }
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        filename = ydl.prepare_filename(info)
+                    
+                    # Run yt-dlp in a separate thread to prevent blocking asyncio loop
+                    def download_yt():
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                            filename = ydl.prepare_filename(info)
+                            return info, filename
+
+                    info, filename = await asyncio.to_thread(download_yt)
 
                     if status_msg:
                         await status_msg.edit("⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
@@ -505,7 +525,7 @@ async def reply_handler(event):
                 except Exception as e:
                     logger.error(f"YT Download Error: {e}")
                     if status_msg:
-                        await status_msg.edit("❌ **Download Error:** File එක විශාල වැඩියි හෝ Link එක වැරදියි.")
+                        await status_msg.edit("❌ **Download Error:** File එක විශාල වැඩියි හෝ YouTube ආරක්ෂිත සීමාවන් නිසා බාගත නොහැක.")
             return
 
         if incoming_raw.lower() in RESPONSES:
