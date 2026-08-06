@@ -33,12 +33,36 @@ AL_EXAM_DATE = datetime(2028, 8, 10)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ai_client = None
 
+# ---- Gemini model fallback chain ----
+# Google retires/renames Gemini model IDs every few months (gemini-2.5-flash
+# started 404ing ahead of its official Oct-2026 shutdown). Instead of hardcoding
+# a single model name that will eventually break again, we try a short list of
+# candidates in order. You can override the primary model with an env var
+# without touching code.
+GEMINI_MODEL_CANDIDATES = [
+    os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+    "gemini-3.1-flash-lite",
+]
+# de-dupe while preserving order
+GEMINI_MODEL_CANDIDATES = list(dict.fromkeys(GEMINI_MODEL_CANDIDATES))
+
 if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
         logger.info("Gemini AI Client initialized successfully.")
     except Exception as e:
         logger.error(f"AI Client Setup Error: {e}")
+
+# ---- Cobalt (YouTube downloader) instance config ----
+# IMPORTANT: api.cobalt.tools explicitly blocks third-party/bot API usage and,
+# separately, currently blocks YouTube downloads on its public instance due to
+# YouTube's anti-downloader measures. This will NOT reliably work from a
+# Render-hosted bot. To make !ytmp3 actually work, self-host your own Cobalt
+# instance (e.g. Railway's one-click Cobalt template) and set these env vars:
+#   COBALT_INSTANCE_URL = https://your-own-instance.up.railway.app
+#   COBALT_API_KEY      = (only if you enabled auth on your instance)
+COBALT_INSTANCE_URL = os.environ.get("COBALT_INSTANCE_URL", "https://api.cobalt.tools/")
+COBALT_API_KEY = os.environ.get("COBALT_API_KEY", "")
 
 session_str = os.environ.get("STRING_SESSION", "")
 client = TelegramClient(StringSession(session_str), API_ID, API_HASH, sequential_updates=True)
@@ -66,23 +90,36 @@ AI_REPLY_ENABLED = True  # AI Auto Reply Enabled
 # ---------------- HELPER FOR AI GENERATION ----------------
 async def generate_ai_response(prompt_text):
     if not ai_client:
-        return "AI Client not initialized."
-    
-    try:
-        response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt_text,
-        )
-        if response and response.text:
-            return response.text.strip()
-    except Exception as e:
-        err_str = str(e)
-        logger.error(f"AI Generation Error Details: {err_str}")
-        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-            return "QUOTA_EXCEEDED"
-        return f"Error: {err_str[:50]}"
-        
-    return "No response generated."
+        return "AI Client not initialized. (GEMINI_API_KEY missing)"
+
+    last_error = None
+    for model_name in GEMINI_MODEL_CANDIDATES:
+        try:
+            response = ai_client.models.generate_content(
+                model=model_name,
+                contents=prompt_text,
+            )
+            if response and response.text:
+                return response.text.strip()
+            last_error = "empty response"
+        except Exception as e:
+            err_str = str(e)
+            logger.error(f"AI Generation Error ({model_name}): {err_str}")
+
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                return "QUOTA_EXCEEDED"
+
+            if "404" in err_str or "NOT_FOUND" in err_str:
+                # this model id is dead/renamed — try the next candidate
+                last_error = err_str
+                continue
+
+            # any other error (bad key, network, etc.) — no point retrying
+            return f"Error: {err_str[:80]}"
+
+    # every candidate model 404'd
+    logger.error(f"All Gemini model candidates failed. Last error: {last_error}")
+    return "MODEL_NOT_FOUND"
 
 # ---------------- DATA PERSISTENCE ----------------
 async def load_bot_data():
@@ -101,6 +138,7 @@ async def load_bot_data():
                 START_HOUR = data.get("start_hour", 1)
                 END_HOUR = data.get("end_hour", 7)
                 WELCOME_MSG_ENABLED = data.get("welcome_msg", True)
+                AI_REPLY_ENABLED = data.get("ai_reply", True)
                 TODO_LIST = data.get("todo_list", [])
                 logger.info("Bot data loaded successfully from Storage Channel.")
                 break
@@ -153,7 +191,7 @@ async def safe_send_message(entity, text, reply_to=None):
             user_identifier = f"@{user_obj.username}" if user_obj.username else f"[{user_obj.first_name}](tg://user?id={user_obj.id})"
         except Exception:
             pass
-        
+
         if user_identifier not in BOT_BLOCKED_USERS:
             BOT_BLOCKED_USERS.add(user_identifier)
             await save_bot_data()
@@ -199,6 +237,7 @@ async def command_handler(event):
                 f" ├ AFK Mode ➔ {'🟢 ON' if AFK_MODE else '🔴 OFF'}\n"
                 f" ├ Working Hours ➔ {'🟢 ON' if WORKING_HOURS_ONLY else '🔴 OFF'}\n"
                 f" ├ Welcome Message ➔ {'🟢 ON' if WELCOME_MSG_ENABLED else '🔴 OFF'}\n"
+                f" ├ AI Auto Reply ➔ {'🟢 ON' if AI_REPLY_ENABLED else '🔴 OFF'}\n"
                 f" ├ Custom Text Replies ➔ `{len(RESPONSES)} Units`\n"
                 f" ├ Custom Media Replies ➔ `{len(MEDIA_RESPONSES)} Units`\n"
                 f" ├ Ignored / Bot Disabled Users ➔ `{len(IGNORED_USERS)} Users`\n"
@@ -214,6 +253,7 @@ async def command_handler(event):
                 " ➦ `!afk` / `!afk off` - Custom AFK Mode On/Off\n"
                 " ➦ `!hours on` / `!hours off` - Working Hours\n"
                 " ➦ `!welcome on` / `!welcome off` - Welcome Msg\n"
+                " ➦ `!ai on` / `!ai off` - AI Auto Reply\n"
                 " ➦ `!add word=reply` - Auto Reply එකතු කිරීමට\n"
                 " ➦ `!addmedia word` - Media Auto Reply\n"
                 " ➦ `!delmedia word` - Media Reply අයින් කිරීමට\n"
@@ -231,10 +271,10 @@ async def command_handler(event):
             if not IGNORED_USERS:
                 await event.edit("🟢 **ඔබ විසින් Bot ව වැඩ නොකරන ලෙස Block/Disable කළ අය කිසිවෙක් නැත.**")
                 return
-            
+
             await event.edit("🔍 **List එක සකස් කරමින් පවතී...**")
             msg = "🚫 **ඔබ විසින් Bot Disable / Block කළ Users ලැයිස්තුව:**\n\n"
-            
+
             for u_id in list(IGNORED_USERS):
                 try:
                     user_obj = await client.get_entity(u_id)
@@ -245,7 +285,7 @@ async def command_handler(event):
                         msg += f"• [{first_n}](tg://user?id={u_id}) (`{u_id}`)\n"
                 except Exception:
                     msg += f"• User ID: `{u_id}`\n"
-            
+
             await event.edit(msg)
             return
 
@@ -310,6 +350,13 @@ async def command_handler(event):
             WELCOME_MSG_ENABLED = (val == "on")
             await save_bot_data()
             await event.edit(f"⚙️ **Welcome Message:** `{'ON' if WELCOME_MSG_ENABLED else 'OFF'}`")
+            return
+
+        if raw_text.startswith("!ai "):
+            val = raw_text[4:].strip().lower()
+            AI_REPLY_ENABLED = (val == "on")
+            await save_bot_data()
+            await event.edit(f"⚙️ **AI Auto Reply:** `{'ON' if AI_REPLY_ENABLED else 'OFF'}`")
             return
 
         if raw_text.startswith("!add ") and "=" in raw_text:
@@ -469,16 +516,20 @@ async def reply_handler(event):
                     f"Solve or explain this question clearly step-by-step in Sinhala/Singlish: '{query}'"
                 )
                 ai_text = await generate_ai_response(prompt)
-                
+
                 if status_msg:
                     if ai_text == "QUOTA_EXCEEDED":
                         await status_msg.edit("⚠️ **AI API Quota Exceeded:** කරුණාකර අලුත් API Key එකක් Render එකට Update කරන්න.")
+                    elif ai_text == "MODEL_NOT_FOUND":
+                        await status_msg.edit("⚠️ **AI Model Unavailable:** Gemini model name එක deprecated වෙලා. GEMINI_MODEL env var එක check කරන්න.")
                     elif ai_text.startswith("Error:"):
                         await status_msg.edit(f"⚠️ **AI Error:** {ai_text}")
                     elif ai_text:
                         await status_msg.edit(f"📚 **Study Solution:**\n\n{ai_text}")
                     else:
                         await status_msg.edit("❌ උත්තරය සොයාගැනීමට නොහැකි විය.")
+            elif not ai_client:
+                await safe_send_message(event.chat_id, "⚠️ AI Client එක Setup වී නැත. GEMINI_API_KEY check කරන්න.", reply_to=event)
             return
 
         if incoming_raw.lower().startswith("!ytmp3 "):
@@ -492,33 +543,53 @@ async def reply_handler(event):
             if "youtube.com" in url or "youtu.be" in url:
                 status_msg = await safe_send_message(event.chat_id, "📥 **YouTube MP3 Download වෙමින් පවතී...**", reply_to=event)
                 try:
-                    cobalt_api = "https://api.cobalt.tools/"
                     headers = {
                         "Accept": "application/json",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     }
+                    if COBALT_API_KEY:
+                        headers["Authorization"] = f"Api-Key {COBALT_API_KEY}"
+
+                    # Correct Cobalt API v10 payload shape.
+                    # downloadMode="audio" + audioFormat="mp3" is the audio-only request.
                     payload = {
                         "url": url,
-                        "isAudioOnly": True,
-                        "aFormat": "mp3"
+                        "downloadMode": "audio",
+                        "audioFormat": "mp3",
                     }
 
+                    dl_url = None
+                    fail_reason = None
+
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(cobalt_api, json=payload, headers=headers) as resp:
-                            if resp.status == 200:
+                        async with session.post(COBALT_INSTANCE_URL, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                            try:
                                 res_json = await resp.json()
+                            except Exception:
+                                res_json = {}
+
+                            status = res_json.get("status")
+                            if resp.status == 200 and status in ("tunnel", "redirect"):
                                 dl_url = res_json.get("url")
-                                
-                                if dl_url:
-                                    if status_msg:
-                                        await status_msg.edit("⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
-                                    
-                                    os.makedirs("downloads", exist_ok=True)
-                                    filepath = "downloads/audio.mp3"
-                                    
-                                    async with session.get(dl_url) as file_resp:
-                                        with open(filepath, "wb") as f:
-                                            f.write(await file_resp.read())
+                            elif status == "picker":
+                                # multiple items returned (e.g. playlist/picker) — take the first audio item
+                                items = res_json.get("picker", [])
+                                if items:
+                                    dl_url = items[0].get("url")
+                            else:
+                                fail_reason = res_json.get("error", {}).get("code") or f"HTTP {resp.status}"
+
+                        if dl_url:
+                            if status_msg:
+                                await status_msg.edit("⬆️ **Audio එක Telegram එකට Upload වෙමින් පවතී...**")
+
+                            os.makedirs("downloads", exist_ok=True)
+                            filepath = "downloads/audio.mp3"
+
+                            async with session.get(dl_url) as file_resp:
+                                if file_resp.status == 200:
+                                    with open(filepath, "wb") as f:
+                                        f.write(await file_resp.read())
 
                                     await client.send_file(event.chat_id, filepath, caption="🎵 **YouTube Audio Downloaded Successfully!**")
                                     if status_msg:
@@ -526,9 +597,18 @@ async def reply_handler(event):
                                     if os.path.exists(filepath):
                                         os.remove(filepath)
                                     return
-                    
+                                else:
+                                    fail_reason = f"file fetch HTTP {file_resp.status}"
+
                     if status_msg:
-                        await status_msg.edit("❌ **Download Error:** Audio එක ලබාගැනීමට නොහැකි විය.")
+                        if COBALT_INSTANCE_URL.rstrip("/") == "https://api.cobalt.tools":
+                            await status_msg.edit(
+                                "❌ **Download Error:** Public Cobalt instance එක YouTube සහ third-party "
+                                "bots block කරලා තියෙන්නේ. Self-hosted Cobalt instance එකක් setup කර "
+                                "`COBALT_INSTANCE_URL` env var එක Render එකට දාන්න."
+                            )
+                        else:
+                            await status_msg.edit(f"❌ **Download Error:** {fail_reason or 'Audio එක ලබාගැනීමට නොහැකි විය.'}")
 
                 except Exception as e:
                     logger.error(f"YT Download Error: {e}")
@@ -551,14 +631,14 @@ async def reply_handler(event):
 
         if user_id not in REPLIED_USERS:
             await asyncio.sleep(5)
-            
+
             if await is_owner_online():
                 return
 
             if AI_REPLY_ENABLED and ai_client:
                 prompt = f"Briefly reply in Singlish to: '{incoming_raw}'"
                 ai_text = await generate_ai_response(prompt)
-                if ai_text and ai_text not in ["QUOTA_EXCEEDED"] and not ai_text.startswith("Error:"):
+                if ai_text and ai_text not in ["QUOTA_EXCEEDED", "MODEL_NOT_FOUND"] and not ai_text.startswith("Error:"):
                     await safe_send_message(event.chat_id, f"{ai_text}\n\n_(🤖 Auto Reply - Type !help for commands)_", reply_to=event)
             REPLIED_USERS.add(user_id)
 
@@ -576,7 +656,7 @@ async def main():
     logger.info("Starting Telethon Client...")
     await client.start()
     logger.info("Userbot Logged In Successfully!")
-    
+
     await load_bot_data()
     try:
         await client.send_message(STORAGE_CHANNEL, "🚀 **Userbot Successfully Deployed & Updated!**\n\n_System is active and ready to operate._ 🖤")
@@ -589,7 +669,7 @@ if __name__ == "__main__":
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
-    
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
